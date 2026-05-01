@@ -1,6 +1,6 @@
 # STATUS — ABI coverage of `open-bambu-networking`
 
-This document tracks how each symbol listed in [NETWORK_PLUGIN.md § 6](NETWORK_PLUGIN.md#6-the-full-c-abi-contract) is handled by this open-source plugin. Sections mirror the same grouping used in the reference document.
+This document tracks how each symbol listed in [NETWORK_PLUGIN.md § 6](NETWORK_PLUGIN.md#6-the-full-c-abi-contract) is handled by this open-source plugin. Top-level `##` headings group related surfaces; **subsection numbers (`### 6._n_`) match the same §6._n_ titles in the reference** so you can jump between the two documents. Everything that talks to Bambu’s cloud over **HTTPS** (and the closely related **cloud MQTT** session in §6.3) is rolled into one block, **Cloud & HTTP APIs**, with subsections below it.
 
 ## Legend
 
@@ -58,7 +58,11 @@ Source: [src/abi_callbacks.cpp](src/abi_callbacks.cpp). All entries are thin `st
 
 ---
 
-## 6.3. Cloud — connection and subscriptions
+## Cloud & HTTP APIs
+
+Subsections use the same **§6._n_** numbers as [NETWORK_PLUGIN.md § 6](NETWORK_PLUGIN.md#6-the-full-c-abi-contract). **§6.3** is cloud **MQTT** (TLS to the broker), not REST on `api.bambulab.*`, but it shares the same logged-in session, region, and callback wiring as the HTTPS calls below.
+
+### 6.3. Cloud — connection and subscriptions
 
 Source: [src/abi_cloud.cpp](src/abi_cloud.cpp).
 
@@ -74,24 +78,7 @@ Source: [src/abi_cloud.cpp](src/abi_cloud.cpp).
 | `bambu_network_enable_multi_machine` | ✅ | No-op: multi-machine mode only toggles Studio's UI; there is no plugin-side state tied to it. |
 | `bambu_network_send_message` | ✅ | LAN-first routing: tries the LAN MQTT session for the target `dev_id`; falls back to cloud MQTT when no LAN session matches. |
 
----
-
-## 6.4. Local printer connection (LAN)
-
-Source: [src/abi_lan.cpp](src/abi_lan.cpp).
-
-| Function | Status | Notes |
-| --- | :--: | --- |
-| `bambu_network_connect_printer` | ✅ | Opens a LAN MQTT session (TLS to `mqtts://<ip>:8883`, user `bblp`, password = access code). |
-| `bambu_network_disconnect_printer` | ✅ | Tears the LAN MQTT session down. |
-| `bambu_network_send_message_to_printer` | ✅ | Publishes on the active LAN MQTT session; payload is log-redacted. |
-| `bambu_network_update_cert` | ✅ | No-op: the CA bundle is loaded once in `set_cert_file` and re-used for the lifetime of the agent. |
-| `bambu_network_install_device_cert` | ✅ | Per-device TLS material is installed on the agent the first time it is seen; subsequent calls are deduplicated. |
-| `bambu_network_start_discovery` | ✅ | Starts the SSDP multicast listener on `239.255.255.250:1990`. |
-
----
-
-## 6.5. Authentication and user
+### 6.5. Authentication and user
 
 Source: [src/abi_user.cpp](src/abi_user.cpp).
 
@@ -111,9 +98,7 @@ Source: [src/abi_user.cpp](src/abi_user.cpp).
 | `bambu_network_get_my_token` | ✅ | Exchanges a browser-login ticket for an access token (`POST /user-service/user/ticket/<T>`). |
 | `bambu_network_get_user_info` | ✅ | Returns the numeric user id. Uses `stoll` + narrowing cast because cloud user ids are 32-bit unsigned and would overflow `std::stoi`. |
 
----
-
-## 6.6. Binding / bind
+### 6.6. Binding / bind
 
 Source: [src/abi_bind.cpp](src/abi_bind.cpp).
 
@@ -127,9 +112,7 @@ Source: [src/abi_bind.cpp](src/abi_bind.cpp).
 | `bambu_network_query_bind_status` | ✅ | Cloud bind-status query. |
 | `bambu_network_report_consent` | ❌ | No-op (returns `SUCCESS`). No consent-collection endpoint is exposed by this plugin. |
 
----
-
-## 6.7. Printer selection and metadata
+### 6.7. Printer selection and metadata
 
 Sources: [src/abi_user.cpp](src/abi_user.cpp), [src/abi_bind.cpp](src/abi_bind.cpp), [src/abi_http.cpp](src/abi_http.cpp).
 
@@ -141,23 +124,7 @@ Sources: [src/abi_user.cpp](src/abi_user.cpp), [src/abi_bind.cpp](src/abi_bind.c
 | `bambu_network_modify_printer_name` | ✅ | Cloud rename call. |
 | `bambu_network_get_printer_firmware` | ✨ | Stock calls Bambu's cloud firmware catalogue. This plugin re-synthesises the JSON envelope locally from the MQTT frames the printer already sends (`info.command=get_version` replies and `push_status.upgrade_state.new_ver_list`). That populates the Update panel and lights up the "update available" badge without any cloud roundtrip. The "Update" button itself is a plain LAN MQTT passthrough; the printer fetches the binary from Bambu's CDN directly. Trade-off: no cross-version history — only the advertised version is flashable. |
 
----
-
-## 6.8. Submitting a print job
-
-Source: [src/abi_print.cpp](src/abi_print.cpp).
-
-| Function | Status | Notes |
-| --- | :--: | --- |
-| `bambu_network_start_print` | 🔒⚠️ | Pure cloud path: Studio publishes a signed MQTT command to the cloud-paired printer. The required per-install RSA signing keys are not reproducible, so the command is rejected with `84033543 "MQTT Command verification failed"`. Works only against a printer with Developer Mode enabled, where signature validation is skipped and the command arrives via LAN MQTT. |
-| `bambu_network_start_local_print_with_record` | ⚠️ | LAN print runs normally; the cloud `create_task` step for MakerWorld history soft-fails (logged at WARN) and the job proceeds with `task_id="0"`. Net effect: print works, MakerWorld job history and the timelapse-on-printer cloud flags are unavailable. |
-| `bambu_network_start_send_gcode_to_sdcard` | ✅ | LAN FTPS upload to the printer's storage mount. |
-| `bambu_network_start_local_print` | ✅ | LAN-only: FTPS upload + `{"print":{"command":"project_file", …}}` on LAN MQTT. |
-| `bambu_network_start_sdcard_print` | ✨ | Stock hits a signed cloud REST endpoint. This plugin publishes `{"print":{"command":"project_file", "url":"ftp://<path>", …}}` directly on LAN MQTT for a file already resident on the printer. No cloud task record is produced. |
-
----
-
-## 6.9. User presets
+### 6.9. User presets
 
 Source: [src/abi_presets.cpp](src/abi_presets.cpp), [src/cloud_presets.cpp](src/cloud_presets.cpp). Full CRUD against Bambu's `api.bambulab.com/v1/iot-service/api/slicer/setting` endpoint, using only the user's bearer token (the stock `X-BBL-*` fingerprint headers aren't required by the server).
 
@@ -172,9 +139,7 @@ This implementation goes a step beyond the stock plugin. Studio's original `bamb
 | `bambu_network_get_setting_list2` | ✨ | Stock plugin only lists metadata and relies on local files. We additionally `GET /slicer/setting/<id>` for presets the Studio-provided `CheckFn` flags as needed, so cross-device sync actually delivers the content. |
 | `bambu_network_delete_setting` | ✅ | `DELETE /slicer/setting/<id>`; server-side idempotent (missing id still returns 200). |
 
----
-
-## 6.10. HTTP / service
+### 6.10. HTTP / service
 
 Source: [src/abi_http.cpp](src/abi_http.cpp).
 
@@ -189,6 +154,47 @@ Source: [src/abi_http.cpp](src/abi_http.cpp).
 | `bambu_network_get_task_plate_index` | ❌ | Returns `SUCCESS` with `plate_index=-1`. |
 | `bambu_network_get_subtask_info` | ✨ | LAN-only prints arrive with `project_id=profile_id=subtask_id="0"`; the agent rewrites those to synthetic `"lan-<fnv>"` ids on `push_status`, and this call resolves them — the reply carries a `thumbnail.url` pointing at the plugin's loopback HTTP cover server, which serves `Metadata/plate_N.png` unpacked from the `.3mf` in the printer's `/cache/`. Cloud-style subtask ids fall through unchanged. Guarded by `OBN_ENABLE_WORKAROUNDS`. |
 | `bambu_network_get_slice_info` | ❌ | Returns `SUCCESS` with empty body. |
+
+### 6.15. Filament Manager (cloud spool catalogue)
+
+Source: [src/abi_filament.cpp](src/abi_filament.cpp), [src/cloud_filament.cpp](src/cloud_filament.cpp). All five endpoints are fully reverse-engineered from a MITM dump of the stock `02.06.01.50` plugin (see [NETWORK_PLUGIN.md § 6.15](NETWORK_PLUGIN.md#615-filament-manager-cloud-spool-catalogue)).
+
+| Function | Status | Notes |
+| --- | :--: | --- |
+| `bambu_network_get_filament_spools` | ✅ | `GET /v1/design-user-service/my/filament/v2?offset=…&limit=…[&category=…&status=…&ids=…&RFIDs=…]`. Response body (`{"hits":[…]}`) is forwarded verbatim to Studio. |
+| `bambu_network_create_filament_spool` | ✅ | `POST /v1/design-user-service/my/filament/v2`. Request body is forwarded verbatim from Studio (CreateFilamentV2Req JSON). Server responds with `{}` — Studio re-lists afterwards to learn the assigned `id`. |
+| `bambu_network_update_filament_spool` | ✅ | `PUT /v1/design-user-service/my/filament/v2`. Body must always include `id` (int64) and `filamentName`; Studio assembles and forwards this. Response (`{"filamentV2":{…}}`) is returned in `http_body`. |
+| `bambu_network_delete_filament_spools` | ✅ | `DELETE /v1/design-user-service/my/filament/v2/batch` with body `{"ids":[…],"RFIDs":[…]}` built from `FilamentDeleteParams`. Server responds with `{}`. |
+| `bambu_network_get_filament_config` | ✅ | `GET /v1/design-user-service/filament/config`. Returns the ~11 KB catalogue of known filament vendors/types/ids that Studio uses to populate the "Add spool" form pickers. |
+
+---
+
+## 6.4. Local printer connection (LAN)
+
+Source: [src/abi_lan.cpp](src/abi_lan.cpp).
+
+| Function | Status | Notes |
+| --- | :--: | --- |
+| `bambu_network_connect_printer` | ✅ | Opens a LAN MQTT session (TLS to `mqtts://<ip>:8883`, user `bblp`, password = access code). |
+| `bambu_network_disconnect_printer` | ✅ | Tears the LAN MQTT session down. |
+| `bambu_network_send_message_to_printer` | ✅ | Publishes on the active LAN MQTT session; payload is log-redacted. |
+| `bambu_network_update_cert` | ✅ | No-op: the CA bundle is loaded once in `set_cert_file` and re-used for the lifetime of the agent. |
+| `bambu_network_install_device_cert` | ✅ | Per-device TLS material is installed on the agent the first time it is seen; subsequent calls are deduplicated. |
+| `bambu_network_start_discovery` | ✅ | Starts the SSDP multicast listener on `239.255.255.250:1990`. |
+
+---
+
+## 6.8. Submitting a print job
+
+Source: [src/abi_print.cpp](src/abi_print.cpp).
+
+| Function | Status | Notes |
+| --- | :--: | --- |
+| `bambu_network_start_print` | 🔒⚠️ | Pure cloud path: Studio publishes a signed MQTT command to the cloud-paired printer. The required per-install RSA signing keys are not reproducible, so the command is rejected with `84033543 "MQTT Command verification failed"`. Works only against a printer with Developer Mode enabled, where signature validation is skipped and the command arrives via LAN MQTT. |
+| `bambu_network_start_local_print_with_record` | ⚠️ | LAN print runs normally; the cloud `create_task` step for MakerWorld history soft-fails (logged at WARN) and the job proceeds with `task_id="0"`. Net effect: print works, MakerWorld job history and the timelapse-on-printer cloud flags are unavailable. |
+| `bambu_network_start_send_gcode_to_sdcard` | ✅ | LAN FTPS upload to the printer's storage mount. |
+| `bambu_network_start_local_print` | ✅ | LAN-only: FTPS upload + `{"print":{"command":"project_file", …}}` on LAN MQTT. |
+| `bambu_network_start_sdcard_print` | ✨ | Stock hits a signed cloud REST endpoint. This plugin publishes `{"print":{"command":"project_file", "url":"ftp://<path>", …}}` directly on LAN MQTT for a file already resident on the printer. No cloud task record is produced. |
 
 ---
 
@@ -290,5 +296,7 @@ For `bambu:///local/*` URLs the fast path serves the whole `ft_*` bus over FTPS 
 | Reference | Location |
 | --- | --- |
 | ABI contract (canonical function list) | [NETWORK_PLUGIN.md § 6](NETWORK_PLUGIN.md#6-the-full-c-abi-contract) |
+| Common cloud HTTPS transport (hosts, bearer, response envelopes) | [NETWORK_PLUGIN.md § 6.10.1](NETWORK_PLUGIN.md#6101-common-cloud-transport) |
+| Filament Manager REST shapes (MITM) | [NETWORK_PLUGIN.md § 6.15](NETWORK_PLUGIN.md#615-filament-manager-cloud-spool-catalogue) |
 | Feature-level status tables (per-model) | [README.md](README.md) |
 | Workaround rationale | [README.md § Workaround reference](README.md#workaround-reference) |
