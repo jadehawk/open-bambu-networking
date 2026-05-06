@@ -41,8 +41,14 @@ public:
     int port() const { return port_.load(); }
 
     // http://127.0.0.1:<port>/cover/cover-XXXXXXXX-pN.png - matches the
-    // basename produced by cover_cache::path_for.
-    std::string url_for(const std::string& subtask_name, int plate_idx) const;
+    // basename produced by cover_cache::path_for. `version` is forwarded
+    // verbatim to path_for so the URL changes whenever the per-print
+    // token changes (typically gcode_start_time), which is what stops
+    // Studio's wxImage / StatusPanel::img_list from serving a stale
+    // thumbnail for a same-named .3mf reprinted with new content.
+    std::string url_for(const std::string& subtask_name,
+                        int                plate_idx,
+                        const std::string& version = {}) const;
 
 private:
     void accept_loop();

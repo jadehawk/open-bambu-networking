@@ -289,10 +289,23 @@ std::uint32_t fnv1a_32(const std::string& s)
     return h;
 }
 
-std::string synthetic_subtask_id(const std::string& subtask_name)
+// Builds the synthetic subtask id Studio sees in place of the LAN print's
+// "0"s. `version` is the per-print token (gcode_start_time) folded into
+// the hash so a re-print of a same-named .3mf yields a brand new id.
+// Studio's update_model_task() compares last_subtask_id_ != subtask_id_
+// before re-fetching the cover; without `version` participating in the
+// hash that comparison would short-circuit and the thumbnail would never
+// refresh.
+std::string synthetic_subtask_id(const std::string& subtask_name,
+                                 const std::string& version)
 {
+    std::string keyed = subtask_name;
+    if (!version.empty()) {
+        keyed.push_back('\x01');
+        keyed.append(version);
+    }
     char buf[32];
-    std::snprintf(buf, sizeof(buf), "lan-%08x", fnv1a_32(subtask_name));
+    std::snprintf(buf, sizeof(buf), "lan-%08x", fnv1a_32(keyed));
     return buf;
 }
 
@@ -304,12 +317,15 @@ std::string synthetic_subtask_id(const std::string& subtask_name)
 // FTPS /cache/ and can hand Studio a real cover image.
 //
 // Swap the zero ids for synthetic non-zero ones derived from the
-// subtask_name. Studio will then hit the "cloud subtask" branch,
+// (subtask_name, version) pair where `version` is gcode_start_time
+// from the same frame. Studio will then hit the "cloud subtask" branch,
 // eventually calling our bambu_network_get_subtask_info which hands
 // back a JSON pointing at the local cover_server.
 //
 // Returns true if the payload was patched.
-bool try_rewrite_print_ids(std::string& payload, std::string* synthetic_id)
+bool try_rewrite_print_ids(std::string& payload,
+                           const std::string& version,
+                           std::string* synthetic_id)
 {
     // Cheap prefilter: only bother if we're looking at a push_status
     // frame that carries a subtask_name (i.e. a real print, not a
@@ -318,7 +334,7 @@ bool try_rewrite_print_ids(std::string& payload, std::string* synthetic_id)
     if (!json_peek_string_field(payload, "subtask_name", &name)) return false;
     if (name.empty() || name == "-1") return false;
 
-    std::string id = synthetic_subtask_id(name);
+    std::string id = synthetic_subtask_id(name, version);
     bool touched = false;
     touched |= patch_string_zero_to(payload, "project_id", "lan");
     touched |= patch_string_zero_to(payload, "profile_id", "lan");
@@ -387,11 +403,42 @@ void Agent::notify_local_message(const std::string& dev_id, const std::string& j
     bool rewrote_flag    = try_rewrite_home_flag(patched);
     bool injected_file   = try_inject_ipcam_file_local(patched);
 
+    // Per-print token used to invalidate the cover cache when the user
+    // re-uploads a different .3mf under the same filename. We need a
+    // value that is constant for the life of one print and changes the
+    // moment the next one starts. Three candidates, tried in order of
+    // reliability across observed firmware:
+    //
+    //  1. `task_id` — the printer's own monotonic print-job counter
+    //     (e.g. "8442", incremented per job). Present on P-/X-/A-series
+    //     LAN-only frames even when subtask_id/job_id/lan_task_id are
+    //     all "0", which makes it the most universally available
+    //     stable per-print identifier in the report block.
+    //
+    //  2. `gcode_start_time` — wall-clock epoch when the print started.
+    //     Some engineering / older firmware does not emit task_id but
+    //     does emit this; keep it as a fallback.
+    //
+    //  3. Empty string — no token available; the cache key collapses to
+    //     the legacy name-only FNV hash, preserving prior behaviour
+    //     (i.e. the bug, but only on firmware that carries neither
+    //     identifier — none observed in practice).
+    //
+    // Must be extracted *before* try_rewrite_print_ids, because that
+    // helper rewrites task_id="0" -> synth_id and we'd then key against
+    // our own synthetic id (circular).
+    std::string version;
+    json_peek_string_field(patched, "task_id", &version);
+    if (version.empty() || version == "0") {
+        version.clear();
+        json_peek_string_field(patched, "gcode_start_time", &version);
+    }
+
     // Print-cover workaround: turn a LAN-only "all zeros" print into a
     // synthetic cloud subtask so Studio's update_cloud_subtask path
     // fires and requests our cover URL.
     std::string synth_id;
-    bool rewrote_ids = try_rewrite_print_ids(patched, &synth_id);
+    bool rewrote_ids = try_rewrite_print_ids(patched, version, &synth_id);
 
     // Cover-cache trigger. Two cases feed this path:
     //  * LAN-only prints: ids were "0", rewrite_print_ids swapped them
@@ -410,9 +457,16 @@ void Agent::notify_local_message(const std::string& dev_id, const std::string& j
     json_peek_string_field(patched, "subtask_id", &real_subtask_id);
 
     std::string cover_id;
+    // The `version` participates in the cache key only for the LAN /
+    // synthetic branch. Real cloud subtask ids are already unique per
+    // print on the server side, so a same-named reprint there gets a
+    // brand-new subtask_id and the old cache key naturally retires —
+    // mixing gcode_start_time in would just orphan PNGs faster.
+    std::string cover_version;
     if (!subtask_name.empty() && subtask_name != "-1") {
         if (rewrote_ids && !synth_id.empty()) {
-            cover_id = synth_id;
+            cover_id      = synth_id;
+            cover_version = version;
         } else if (!real_subtask_id.empty() && real_subtask_id != "0") {
             cover_id = real_subtask_id;
         }
@@ -435,7 +489,8 @@ void Agent::notify_local_message(const std::string& dev_id, const std::string& j
                 pass = lan_session_->password();
                 ca   = lan_session_->ca_file();
             }
-            synthetic_subtasks_[cover_id] = {subtask_name, plate_idx};
+            synthetic_subtasks_[cover_id] =
+                SyntheticSubtask{subtask_name, plate_idx, cover_version};
             // Cap the map; the user only ever cares about the current
             // print but we keep a short history for races between
             // subtask switches and Studio's thumbnail re-request.
@@ -452,16 +507,17 @@ void Agent::notify_local_message(const std::string& dev_id, const std::string& j
         }
         if (!host.empty()) {
             cover_cache::ensure(host, user, pass, ca,
-                                subtask_name, plate_idx);
+                                subtask_name, plate_idx, cover_version);
         }
     }
 
     OBN_DEBUG("notify_local_message dev=%s bytes=%zu cb=%d sd_fix=%d "
-              "file_inject=%d print_ids=%d cover_id=%s",
+              "file_inject=%d print_ids=%d cover_id=%s ver=%s",
               dev_id.c_str(), patched.size(), cb ? 1 : 0,
               rewrote_flag ? 1 : 0, injected_file ? 1 : 0,
               rewrote_ids ? 1 : 0,
-              cover_id.empty() ? "-" : cover_id.c_str());
+              cover_id.empty() ? "-" : cover_id.c_str(),
+              cover_version.empty() ? "-" : cover_version.c_str());
 #else
     OBN_DEBUG("notify_local_message dev=%s bytes=%zu cb=%d (strict)",
               dev_id.c_str(), patched.size(), cb ? 1 : 0);
@@ -724,10 +780,13 @@ bool Agent::lookup_synthetic_subtask(const std::string& subtask_id,
     std::lock_guard<std::mutex> lk(mu_);
     auto it = synthetic_subtasks_.find(subtask_id);
     if (it == synthetic_subtasks_.end()) return false;
-    out->subtask_name = it->second.first;
-    out->plate_idx    = it->second.second;
-    if (cover_server_) out->url = cover_server_->url_for(out->subtask_name,
-                                                          out->plate_idx);
+    out->subtask_name = it->second.subtask_name;
+    out->plate_idx    = it->second.plate_idx;
+    if (cover_server_) {
+        out->url = cover_server_->url_for(out->subtask_name,
+                                          out->plate_idx,
+                                          it->second.version);
+    }
     return true;
 #else
     (void)subtask_id;

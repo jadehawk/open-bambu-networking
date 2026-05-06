@@ -31,10 +31,19 @@ namespace obn::cover_cache {
 // std::filesystem handles TMPDIR/TEMP/TMP as the platform expects.
 std::string temp_dir();
 
-// Stable per-(subtask,plate) filename under temp_dir(). Filename is a
-// hash of the subtask name so it's filesystem-safe on every OS. Does
-// not touch the filesystem.
-std::string path_for(const std::string& subtask_name, int plate_idx);
+// Stable per-(subtask,plate,version) filename under temp_dir(). Filename
+// is a hash of (subtask name + version) so it's filesystem-safe on every
+// OS. Does not touch the filesystem.
+//
+// `version` is an opaque per-print token — typically `gcode_start_time`
+// from the push_status frame — that lets us detect "same filename, new
+// content" the user might have re-uploaded between prints. Pass an empty
+// string when no version is known; behaviour then reduces to the legacy
+// name-only key (kept for backward compatibility with frames that don't
+// carry a start time).
+std::string path_for(const std::string& subtask_name,
+                     int                plate_idx,
+                     const std::string& version = {});
 
 // Background fetcher: if the file at path_for(...) doesn't already exist,
 // spawn a detached thread that connects to `host` via FTPS using the
@@ -44,13 +53,15 @@ std::string path_for(const std::string& subtask_name, int plate_idx);
 // plate_1.png) and atomically writes it to disk.
 //
 // The function is idempotent and concurrency-safe: a second call for
-// the same (name,plate) while a previous fetch is still in flight is a
-// no-op.
+// the same (name,plate,version) while a previous fetch is still in
+// flight is a no-op. A different `version` for the same name forces a
+// re-fetch even if a stale PNG is still on disk.
 void ensure(const std::string& host,
             const std::string& user,
             const std::string& password,
             const std::string& ca_file,
             const std::string& subtask_name,
-            int                plate_idx);
+            int                plate_idx,
+            const std::string& version = {});
 
 } // namespace obn::cover_cache

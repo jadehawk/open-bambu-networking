@@ -244,11 +244,13 @@ void Server::accept_loop()
     }
 }
 
-std::string Server::url_for(const std::string& subtask_name, int plate_idx) const
+std::string Server::url_for(const std::string& subtask_name,
+                            int                plate_idx,
+                            const std::string& version) const
 {
     int p = port_.load();
     if (p <= 0 || subtask_name.empty()) return {};
-    fs::path path = cover_cache::path_for(subtask_name, plate_idx);
+    fs::path path = cover_cache::path_for(subtask_name, plate_idx, version);
     if (path.empty()) return {};
     return "http://127.0.0.1:" + std::to_string(p) + "/cover/" +
            path.filename().string();

@@ -35,14 +35,17 @@ std::uint32_t fnv1a_32(const std::string& s)
     return h;
 }
 
-// Tracks (name+plate) combos currently being fetched so back-to-back
-// push_status frames don't spawn duplicate FTPS sessions.
+// Tracks (name+plate+version) combos currently being fetched so
+// back-to-back push_status frames don't spawn duplicate FTPS sessions.
+// Including `version` (gcode_start_time) means a freshly-started print
+// of a same-named .3mf is correctly treated as a separate fetch rather
+// than coalesced with an in-flight stale download.
 std::mutex                g_inflight_mu;
 std::unordered_set<std::string> g_inflight;
 
-std::string inflight_key(const std::string& name, int plate)
+std::string inflight_key(const std::string& name, int plate, const std::string& version)
 {
-    return std::to_string(plate) + "\x01" + name;
+    return std::to_string(plate) + "\x01" + name + "\x01" + version;
 }
 
 // Drops a name into the inflight set and returns true if it wasn't
@@ -159,6 +162,7 @@ void fetch_worker(std::string host,
                   std::string ca_file,
                   std::string subtask_name,
                   int         plate_idx,
+                  std::string version,
                   std::string inflight)
 {
     struct ScopeRelease {
@@ -261,7 +265,7 @@ void fetch_worker(std::string host,
         return;
     }
 
-    fs::path out = path_for(subtask_name, plate_idx);
+    fs::path out = path_for(subtask_name, plate_idx, version);
     if (!write_atomic(out, png)) {
         OBN_DEBUG("cover_cache: write %s failed", out.string().c_str());
         return;
@@ -291,10 +295,20 @@ std::string temp_dir()
     return dir.string();
 }
 
-std::string path_for(const std::string& subtask_name, int plate_idx)
+std::string path_for(const std::string& subtask_name,
+                     int                plate_idx,
+                     const std::string& version)
 {
     if (subtask_name.empty()) return {};
-    std::uint32_t h = fnv1a_32(subtask_name);
+    // Fold (name, version) into a single 32-bit hash. When `version` is
+    // empty the result is identical to the legacy name-only hash, so
+    // pre-existing callers and on-disk cache files keep matching.
+    std::string keyed = subtask_name;
+    if (!version.empty()) {
+        keyed.push_back('\x01');
+        keyed.append(version);
+    }
+    std::uint32_t h = fnv1a_32(keyed);
     char buf[32];
     std::snprintf(buf, sizeof(buf), "cover-%08x-p%d.png", h,
                   plate_idx > 0 ? plate_idx : 1);
@@ -306,11 +320,12 @@ void ensure(const std::string& host,
             const std::string& password,
             const std::string& ca_file,
             const std::string& subtask_name,
-            int                plate_idx)
+            int                plate_idx,
+            const std::string& version)
 {
     if (host.empty() || subtask_name.empty()) return;
 
-    std::string target = path_for(subtask_name, plate_idx);
+    std::string target = path_for(subtask_name, plate_idx, version);
     if (target.empty()) return;
     std::error_code ec;
     if (fs::exists(target, ec) && !ec) {
@@ -318,11 +333,11 @@ void ensure(const std::string& host,
         if (!ec && sz > 0) return; // already cached
     }
 
-    std::string key = inflight_key(subtask_name, plate_idx);
+    std::string key = inflight_key(subtask_name, plate_idx, version);
     if (!claim_inflight(key)) return; // another worker is already on it.
 
     std::thread(fetch_worker, host, user, password, ca_file,
-                subtask_name, plate_idx, std::move(key)).detach();
+                subtask_name, plate_idx, version, std::move(key)).detach();
 }
 
 } // namespace obn::cover_cache

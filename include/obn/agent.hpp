@@ -358,10 +358,21 @@ private:
     // wxWebRequest. Only spun up when we first mint a synthetic
     // subtask id; destructor joins its accept loop.
     std::unique_ptr<cover_server::Server> cover_server_;
-    // subtask_id ("lan-<fnv>") -> (subtask_name, plate_idx) mapping we
-    // emit in notify_local_message. Trimmed when the user swaps the
-    // active print, bounded to a handful of entries.
-    std::map<std::string, std::pair<std::string, int>> synthetic_subtasks_;
+    // subtask_id ("lan-<fnv>") -> (subtask_name, plate_idx, version)
+    // mapping we emit in notify_local_message. `version` is the
+    // gcode_start_time we sniffed off the same push_status frame; it's
+    // forwarded back to cover_server::url_for / cover_cache::path_for so
+    // every fresh print of a same-named .3mf gets a distinct cache
+    // file and a distinct URL (otherwise Studio's wxImage cache would
+    // pin the first thumbnail forever - see cover_cache.hpp).
+    // Trimmed when the user swaps the active print, bounded to a
+    // handful of entries.
+    struct SyntheticSubtask {
+        std::string subtask_name;
+        int         plate_idx = 1;
+        std::string version;
+    };
+    std::map<std::string, SyntheticSubtask> synthetic_subtasks_;
 
     // Per-device firmware snapshot, populated from MQTT forwarded
     // through notify_local_message. Keyed by dev_id; value is the
