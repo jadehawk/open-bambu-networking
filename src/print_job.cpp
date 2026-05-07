@@ -347,6 +347,10 @@ std::string build_project_file_json(const BBL::PrintParams& p,
         // SelectMachineDialog::get_ams_mapping_result; embed verbatim.
         os << ",\"ams_mapping2\":" << p.ams_mapping2;
     }
+    if (!p.nozzle_mapping.empty()) {
+        // It's already a JSON array
+        os << ",\"nozzle_mapping\":" << p.nozzle_mapping;
+    }
     os << ",\"auto_bed_leveling\":"  << p.auto_bed_leveling;
     os << ",\"nozzle_offset_cali\":" << p.auto_offset_cali;
     // Studio leaves -1 when set_print_config() was never called (e.g.
@@ -356,17 +360,27 @@ std::string build_project_file_json(const BBL::PrintParams& p,
         os << ",\"extrude_cali_manual_mode\":" << p.extruder_cali_manual_mode;
     }
 
-    // Stock-plugin-only fields. Not present in `PrintParams`, not referenced
-    // anywhere in the public BambuStudio source tree, presumably read by the
-    // stock plugin from its own config blob. The values below are the ones
-    // observed verbatim in every captured stock `project_file` frame so far
-    // (P2S, stock firmware, single install). If a future capture shows
-    // different values, switch these to a real source instead of constants:
-    //   - `cfg` looks like a printer-capability bitmask (string-encoded int).
-    //   - `extrude_cali_flag` is presumably a "PA cali pending" guard
-    //     derived from cached printer state.
-    // See NETWORK_PLUGIN.md §6.8.2 for the wire-format reference.
-    os << ",\"cfg\":\"4\"";
+#if ABI_VERSION >= 0x020503
+    // `cfg` is a string-encoded bitmask the stock plugin builds from
+    // PrintParams flags that don't have a dedicated MQTT field. So far
+    // only one bit is known:
+    //   bit 2 (value 4) = use internal storage for timelapse.
+    // Driven by `task_timelapse_use_internal`. All other bits stay 0 in
+    // every captured stock frame; if more flags surface later, OR them
+    // into `cfg_bits` here. See NETWORK_PLUGIN.md §6.8.2.
+    //
+    // Stock-plugin observation: builds without `task_timelapse_use_internal`
+    // (ABI < 02.05.03) omit `cfg` from `project_file` entirely, so we gate
+    // emission on the same ABI bound to keep wire-level parity.
+    int cfg_bits = 0;
+    if (p.task_timelapse_use_internal) cfg_bits |= 4;
+    os << ",\"cfg\":\"" << cfg_bits << "\"";
+#endif
+
+    // `extrude_cali_flag` has no known PrintParams source. Stock plugin
+    // emits 0 in every captured frame; presumably a "PA cali already
+    // pending" guard derived from cached printer state. Hardcode to 0
+    // until a capture shows otherwise. See NETWORK_PLUGIN.md §6.8.2.
     os << ",\"extrude_cali_flag\":0";
 
     os << "}}";
