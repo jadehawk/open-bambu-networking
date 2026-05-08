@@ -2,7 +2,13 @@
 
 This document describes how Bambu Studio integrates with its proprietary **Network Plugin** (`bambu_networking`) — where it is downloaded from, where it is installed, how it is validated, and the exact C ABI contract it must implement. The goal is to document how the plugin is integrated, loaded, validated and invoked, based purely on the Bambu Studio source code.
 
-The reference is derived from a read-through of the upstream [bambulab/BambuStudio](https://github.com/bambulab/BambuStudio) tree; no binary disassembly is involved. Every claim in this document is backed by a concrete file and line range in Studio's sources. Behaviour that lives strictly inside the closed-source `bambu_networking` binary is out of scope here.
+The reference is derived from three independent sources, none of them involving binary disassembly:
+
+1. A read-through of the upstream [bambulab/BambuStudio](https://github.com/bambulab/BambuStudio) (and the closely related [SoftFever/OrcaSlicer](https://github.com/SoftFever/OrcaSlicer)) trees — every Studio-side claim in this document is backed by a concrete file and line range in those sources.
+2. **MITM captures** of the stock `libbambu_networking.so` against `api.bambulab.com`, MakerWorld and the printer's LAN MQTT / FTPS / RTSPS endpoints, used to reverse the wire format the closed-source `bambu_networking` binary actually produces (HTTPS bodies, MQTT JSON envelopes, FTPS dialect quirks, etc.).
+3. **Cross-ABI matrix runs** against the stock plugin in versions `02.05.00` … `02.06.01` to track how a given `BBL::PrintParams` value is rendered onto the LAN MQTT `print:project_file` payload, and how that mapping shifts as fields are added to `PrintParams` over time.
+
+Where a claim originates from MITM or matrix runs rather than Studio source it is marked accordingly (see "Evidence" tags in §6.10.2 and the per-field tables in §6.8.2). Behaviour that has not been confirmed against either source is flagged as such.
 
 All source references point at the current BambuStudio tree.
 
@@ -1017,16 +1023,16 @@ For endpoints that return a plain-text error (notably `POST /slicer/setting` wit
 
 All paths below are relative to the regional API host from §6.10.1. The "evidence" column states how firm the mapping is — either `MITM` (seen in a live dump of the stock plugin), `probe` (issued by hand with `curl` against production), `source` (read out of Studio's own code) or `stub` (the plugin never hits the network and Studio is happy with a canned response).
 
-- **`get_studio_info_url`** — string accessor, no HTTP call. The stock plugin returns a URL for the "news / banner" side panel (usually a MakerWorld page); an empty string disables the panel. `open-bambu-networking` returns empty. *Evidence: source, stub.*
-- **`set_extra_http_header`** — pure state update. Studio calls it during startup and on region/language switches to attach fingerprint headers to every subsequent request. The plugin stores the map and folds it into outgoing header sets; the server ignores the contents. *Evidence: source.*
-- **`get_my_message`** — the Message Centre bell polls this for `(type, after, limit)`. Studio parses `http_body` as JSON and expects an envelope with a `messages[]` array. The exact URL was not captured in our MITM dumps (the stock plugin only emits it when there is something in the cloud inbox for the user); the most likely candidate from community traces is `GET /v1/user-service/my/messages?type=<t>&after=<unix>&limit=<n>`. The plugin currently returns an empty body with `http_code = 0` — Studio's parser treats that as "no messages" and the bell stays clear. *Evidence: source + stub; URL unconfirmed.*
-- **`check_user_task_report`** — polled after every print to decide whether to show the "rate this print" prompt. The output contract is `*task_id` (zero means "nothing to report") and `*printable`. Stock endpoint was not captured; `open-bambu-networking` returns `0 / false` unconditionally, which is the documented way to suppress the popup. *Evidence: source + stub; URL unconfirmed.*
-- **`get_user_print_info`** — `GET /v1/iot-service/api/user/bind`. This is the single source for the cloud side of the Devices tab. Response shape (from MITM plus our own probes): `{"devices":[{ "dev_id", "name", "online", "print_status", "dev_model_name", "dev_product_name", "dev_access_code", ... }]}`. Studio's `DeviceManager::parse_user_print_info` reads slightly different field names — `dev_name`, `dev_online`, `task_status` — so the plugin remaps on the way out (see `src/abi_http.cpp::remap_bind_payload`). *Evidence: MITM + probe.*
-- **`get_user_tasks`** — the Cloud Task / History grid. Studio passes the whole `http_body` through to its JSON parser. The stock endpoint is not captured in our dumps. Plugin currently returns an empty body, which leaves the grid empty. *Evidence: source + stub; URL unconfirmed.*
-- **`get_task_plate_index`** — looks up which plate a given cloud `task_id` ran on. Studio falls back to plate `0` on failure. Plugin returns `plate_index = -1`. *Evidence: source + stub; URL unconfirmed.*
-- **`get_subtask_info`** — MakerWorld subtask detail fetch; Studio pulls the printer-card hero image from `context.plates[<plate_idx>].thumbnail.url` in the response. `content` is a JSON *string* holding an inner `{info:{plate_idx}}` envelope — both shapes are in `DeviceManager.cpp`. The stock cloud URL is unconfirmed; under `OBN_ENABLE_WORKAROUNDS` the plugin synthesises a minimal response whenever the subtask id looks like `lan-<fnv>` (emitted by our own LAN push-status rewrite) and points `url` at the local `cover_server` serving the PNG extracted from `/cache/<name>.3mf`. See `src/abi_http.cpp::bambu_network_get_subtask_info`. *Evidence: source + workaround; cloud URL unconfirmed.*
-- **`get_slice_info`** — slice summary (time / weight / material cost / layer thumbnails) for a cloud task. Plugin returns empty. *Evidence: source + stub; URL unconfirmed.*
-- **`report_consent`** — one-shot "I accepted the privacy / telemetry dialog" notification, body `{"expand":"<flag>"}`. Studio ignores the return value. Plugin returns `0` without hitting the network. *Evidence: source + stub; URL unconfirmed.*
+- **`get_studio_info_url`** — string accessor, no HTTP call. The stock plugin returns a URL for the "news / banner" side panel (usually a MakerWorld page); an empty string disables the panel. *Evidence: source.*
+- **`set_extra_http_header`** — pure state update. Studio calls it during startup and on region/language switches to attach fingerprint headers to every subsequent request. The stock plugin stores the map and folds it into outgoing header sets; the server ignores the contents. *Evidence: source.*
+- **`get_my_message`** — the Message Centre bell polls this for `(type, after, limit)`. Studio parses `http_body` as JSON and expects an envelope with a `messages[]` array. The exact URL was not captured in available MITM dumps (the stock plugin only emits it when there is something in the cloud inbox for the user); the most likely candidate from community traces is `GET /v1/user-service/my/messages?type=<t>&after=<unix>&limit=<n>`. Returning an empty body with `http_code = 0` makes Studio's parser treat the response as "no messages" and the bell stays clear. *Evidence: source; URL unconfirmed.*
+- **`check_user_task_report`** — polled after every print to decide whether to show the "rate this print" prompt. The output contract is `*task_id` (zero means "nothing to report") and `*printable`. Stock endpoint was not captured; returning `0 / false` is the documented way to suppress the popup. *Evidence: source; URL unconfirmed.*
+- **`get_user_print_info`** — `GET /v1/iot-service/api/user/bind`. This is the single source for the cloud side of the Devices tab. Response shape (from MITM plus direct probes): `{"devices":[{ "dev_id", "name", "online", "print_status", "dev_model_name", "dev_product_name", "dev_access_code", ... }]}`. Studio's `DeviceManager::parse_user_print_info` reads slightly different field names — `dev_name`, `dev_online`, `task_status` — so a clean implementation has to remap on the way out. *Evidence: MITM + probe.*
+- **`get_user_tasks`** — the Cloud Task / History grid. Studio passes the whole `http_body` through to its JSON parser. The stock endpoint is not captured. *Evidence: source; URL unconfirmed.*
+- **`get_task_plate_index`** — looks up which plate a given cloud `task_id` ran on. Studio falls back to plate `0` on failure. *Evidence: source; URL unconfirmed.*
+- **`get_subtask_info`** — MakerWorld subtask detail fetch; Studio pulls the printer-card hero image from `context.plates[<plate_idx>].thumbnail.url` in the response. `content` is a JSON *string* holding an inner `{info:{plate_idx}}` envelope — both shapes are in `DeviceManager.cpp`. The stock cloud URL is unconfirmed. *Evidence: source; cloud URL unconfirmed.*
+- **`get_slice_info`** — slice summary (time / weight / material cost / layer thumbnails) for a cloud task. *Evidence: source; URL unconfirmed.*
+- **`report_consent`** — one-shot "I accepted the privacy / telemetry dialog" notification, body `{"expand":"<flag>"}`. Studio ignores the return value. *Evidence: source; URL unconfirmed.*
 
 The plugin's other HTTP-heavy surfaces follow the same transport and envelope rules but live in their own sections because of their size. The endpoints below are all verified against real traffic unless marked:
 
@@ -1283,13 +1289,9 @@ Studio caches the response for the lifetime of the WebView and keys vendor/type/
 
 Every successful pull rewrites the local store: cloud is the source of truth, and any local-only entries that didn't make it to the server (e.g. a failed previous push) are dropped on each refresh.
 
-#### 6.15.4. Implementation in `open-bambu-networking`
-
-The cloud half lives in `src/cloud_filament.cpp` (header `include/obn/cloud_filament.hpp`) and follows the same pattern as `cloud_presets`: thin wrappers over `obn::http::*` that pull the bearer token through `Agent::cloud_api_http_headers()`. The ABI shims in `src/abi_filament.cpp` only resolve the agent pointer and forward — no per-endpoint logic on this side. Five `BAMBU_NETWORK_ERR_{GET_FILAMENTS,CREATE_FILAMENT,UPDATE_FILAMENT,DELETE_FILAMENT,GET_FILAMENT_CONFIG}_FAILED` codes (-27..-31) are returned on transport / HTTP-error paths so Studio's UI can surface a meaningful toast instead of a silent retry-loop.
-
 ### 6.16. Error codes
 
-The complete list of error values the plugin is expected to return through `int` lives in `src/slic3r/Utils/bambu_networking.hpp:13-94` (general, bind, `start_local_print_with_record`, `start_print`, `start_local_print`, `start_send_gcode_to_sdcard`, connection).
+The complete list of error values the plugin is expected to return through `int` lives in `src/slic3r/Utils/bambu_networking.hpp:13-94` (general, bind, `start_local_print_with_record`, `start_print`, `start_local_print`, `start_send_gcode_to_sdcard`, connection). Five additional `BAMBU_NETWORK_ERR_{GET_FILAMENTS,CREATE_FILAMENT,UPDATE_FILAMENT,DELETE_FILAMENT,GET_FILAMENT_CONFIG}_FAILED` codes (-27..-31) are returned on transport / HTTP-error paths from the §6.15 endpoints so Studio's UI can surface a meaningful toast instead of a silent retry-loop.
 
 ---
 
@@ -1297,7 +1299,7 @@ The complete list of error values the plugin is expected to return through `int`
 
 This second module is the one Studio talks to whenever the user opens a printer's **camera live view** or the **on-printer file browser** (under "Device" → "SD Card / USB"). It has nothing in common with `bambu_networking` apart from packaging — different symbol prefix (`Bambu_*`), different loader, different per-platform back-ends. Bambu's stock shipment puts it at the same `<data_dir>/plugins/` path as the main networking plugin, but a missing or stub `libBambuSource` does not stop Studio from starting; only camera/file-browser features get disabled.
 
-This entire section is reverse-engineered from Studio's own source tree; references below all point at `3rd_party/OrcaSlicer/src/...` in this repo (the OrcaSlicer subtree we use as ground truth).
+This entire section is reverse-engineered from Studio's own source tree; references below all point at the OrcaSlicer subtree (`3rd_party/OrcaSlicer/src/...`), which is used as the ground-truth checkout.
 
 ### 7.1. Loading and discovery
 
@@ -1400,7 +1402,7 @@ The full set of symbols Studio looks up — declared in `BambuTunnel.h`, sorted 
 
 | Symbol | Signature | Used by |
 |--------|-----------|---------|
-| `Bambu_Init` | `int (void)` | one-shot global init (rarely called — the libs we observed do nothing here) |
+| `Bambu_Init` | `int (void)` | one-shot global init (rarely called — observed shipping libs do nothing here) |
 | `Bambu_Deinit` | `void (void)` | one-shot global teardown; called once on agent reset (`StaticBambuLib::release()`) |
 | `Bambu_Create` | `int (Bambu_Tunnel*, const char* url)` | every tunnel |
 | `Bambu_Destroy` | `void (Bambu_Tunnel)` | every tunnel |
@@ -1471,7 +1473,7 @@ Built in `PrinterFileSystem::Reconnect` via `MediaFilePanel`. The format is iden
 
 ### 7.4. Per-platform camera back-end (the critical part)
 
-This is where the three platforms diverge sharply. The key insight: on **Linux** and **Windows** Studio draws video frames itself (a GStreamer pipeline / a DirectShow filter graph living *inside* Studio's binary), and it only borrows our `libBambuSource` for source-side I/O. On **macOS** Studio draws nothing of its own — it expects an Objective-C class **inside `libBambuSource.dylib`** to render frames straight into an `NSView`/`AVSampleBufferDisplayLayer`. The implication: a single C-ABI build of `libBambuSource` is enough for Linux and Windows; macOS additionally requires native AppKit/AVFoundation code shipped inside the same dylib.
+This is where the three platforms diverge sharply. The key insight: on **Linux** and **Windows** Studio draws video frames itself (a GStreamer pipeline / a DirectShow filter graph living *inside* Studio's binary), and only calls into `libBambuSource` for source-side I/O. On **macOS** Studio draws nothing of its own — it expects an Objective-C class **inside `libBambuSource.dylib`** to render frames straight into an `NSView`/`AVSampleBufferDisplayLayer`. The implication: a single C-ABI build of `libBambuSource` is enough for Linux and Windows; macOS additionally requires native AppKit/AVFoundation code shipped inside the same dylib.
 
 #### 7.4.1. Linux: `gstbambusrc` baked into Studio
 
@@ -1509,10 +1511,10 @@ So on Linux the camera flow is:
 
 1. `MediaPlayCtrl::Play` → `m_media_ctrl->Load(wxURI("bambu:///..."))`.
 2. wxGStreamerMediaBackend builds the standard playbin with `bambusrc` as the source element.
-3. `bambusrc` calls `BAMBULIB(Bambu_Create)(..., url)` etc., i.e. our C ABI from `libBambuSource.so`.
+3. `bambusrc` calls `BAMBULIB(Bambu_Create)(..., url)` etc., i.e. the C ABI from `libBambuSource.so`.
 4. For MJPG streams the source emits JPEG access units; the playbin attaches `jpegdec ! videoconvert ! ximagesink`. For RTSPS streams the source emits raw H.264 byte stream and the playbin attaches `h264parse ! avdec_h264 / openh264dec ! videoconvert ! ximagesink`. Either way the slicer-side pipeline does the decode.
 
-i.e. **on Linux our C ABI is enough**. No Linux-specific code needs to live inside `libBambuSource.so`.
+i.e. **on Linux the C ABI is sufficient**. No Linux-specific code needs to live inside `libBambuSource.so`.
 
 #### 7.4.2. Windows: DirectShow filter, separate library
 
@@ -1544,7 +1546,7 @@ Concretely:
 - The actual filter must implement `IBaseFilter` + `IFileSourceFilter` and produce video samples on its output pin.
 - The C ABI from §7.2 is **not used** for camera output on Windows — it is exclusively the file browser path. The DirectShow filter is a separate code path inside the same DLL.
 
-Practical consequence: porting our `libBambuSource.so` to Windows for the *file-browser* feature is straightforward (the C ABI is portable), but bringing Windows camera live view back online requires us to ship a DirectShow source filter too — a substantial separate engineering effort which is currently out of scope.
+Practical consequence: a portable C-ABI implementation of `libBambuSource` covers the *file-browser* feature on Windows for free, but the camera live view requires a separate DirectShow source filter — a substantial extra engineering effort.
 
 #### 7.4.3. macOS: Objective-C `BambuPlayer` class inside the dylib
 
@@ -1600,7 +1602,7 @@ Studio drives it from `wxMediaCtrl2::Load` / `Play` / `Stop` (`wxMediaCtrl2.mm:8
 
 Failure mode if the symbol is missing: `m_error = -2`, `m_player = nullptr`. Subsequent `Load` / `Play` calls log `create_player failed currently!` and return without ever transitioning out of `MEDIASTATE_LOADING`. The user sees an **infinite "Loading…" spinner** in the camera tab, *not* the "Player is malfunctioning" dialog — the latter is reserved for `m_failed_code == 2`, which only fires after a state transition that never happens here. (`MediaPlayCtrl.cpp:29-36, 415-428`.)
 
-This is the reason a C-ABI-only `libBambuSource.dylib` build (no Objective-C `BambuPlayer` class) is enough for the Mac file browser but produces an indefinite loading state in the Mac camera tab. This project does not currently ship a `BambuPlayer` implementation — the `STATUS.md` and `README.md` only target Linux. Adding macOS camera support would mean reintroducing a `stubs/BambuPlayer.mm` that exports `OBJC_CLASS_$_BambuPlayer` from the dylib.
+This is the reason a C-ABI-only `libBambuSource.dylib` build (no Objective-C `BambuPlayer` class) is enough for the Mac file browser but produces an indefinite loading state in the Mac camera tab. To make the camera tab work on macOS the dylib must additionally export an Objective-C class symbol `OBJC_CLASS_$_BambuPlayer` whose interface matches `BambuPlayer.h` above.
 
 #### 7.4.4. Recap
 
@@ -1654,7 +1656,7 @@ In other words: Studio does not know there is an FTPS connection. From its point
 
 This split has consequences:
 
-- The plugin must keep the FTPS connection alive across CTRL requests (Bambu firmwares idle-close it after ~5 minutes; we handle this with a reconnect-on-stale retry, see `stubs/BambuSource.cpp::reconnect_ftp`).
+- The plugin must keep the FTPS connection alive across CTRL requests (Bambu firmwares idle-close it after ~5 minutes — a reconnect-on-stale retry on the next request is the simplest fix).
 - The plugin must probe the FTPS layout once per session (§7.6.1) because different printer firmwares expose storage either as `/sdcard`, `/usb`, or as the FTPS root itself.
 
 #### 7.5.2. Wire format: `Bambu_SendMessage` payload
@@ -1776,7 +1778,13 @@ Studio's CTRL requests address files by **logical storage label** (`storage` fie
 - `LIST /usb`.
 - `LIST /` that directly targets external disk drive
 
-The plugin does the mapping. Our implementation probes once per session (`stubs/BambuSource.cpp::ensure_ftp`) and stores three values on the tunnel: `storage_label`, `ftp_prefix`, and `root_is_storage`. Every request from Studio is then rewritten as `<ftp_prefix>/<path-from-request>`. See § "FTPS storage probing" in `README.md` for the full table of observed firmwares.
+The plugin does the mapping. The standard recipe is to probe once per session (`CWD /sdcard`, `CWD /usb`, then `CWD /` as a fallback) and remember the resolved prefix on the tunnel; every subsequent request from Studio is rewritten as `<ftp_prefix>/<path-from-request>`. The observed prefixes per firmware family are:
+
+| Printer family | FTPS layout | `storage` label Studio sends | Effective FTPS path |
+|---|---|---|---|
+| X1 / P1 / A-series with microSD | `/sdcard/`, sometimes `/usb/` if a stick is plugged in | `sdcard` | `/sdcard/<path>` |
+| P2S (USB-only, no SD slot) | FTPS root *is* the USB stick — neither `/sdcard` nor `/usb` exists | `sdcard` (Studio still sends this label so the radio reads "External Storage") | `/<path>` (no prefix) |
+| H-series / X2D | USB only, layout per upstream model enum (probe to confirm) | `sdcard` | `/<path>` |
 
 #### 7.6.2. The tunnel keeps Studio and FTPS sequenced
 
@@ -1784,14 +1792,14 @@ There are no concurrent CTRL requests on the same tunnel: `PrinterFileSystem::Ru
 
 #### 7.6.3. FTPS dialect quirks
 
-Bambu firmware ships a stripped-down vsftpd / busybox-ftpd hybrid (the exact image varies across O1S / X1 / P1 / P2S / A-series) that deviates from RFC 959 / 4217 in several ways. None of these quirks are documented anywhere in the stock plugin or Studio source, so a fresh implementation needs to know all of them up front. The list below is the union of what `src/ftps.cpp` and `tools/bambu_ftp_proxy.py` (Bambu FTPS ⇆ plaintext FTP bridge for arbitrary clients) had to handle empirically.
+Bambu firmware ships a stripped-down vsftpd / busybox-ftpd hybrid (the exact image varies across O1S / X1 / P1 / P2S / A-series) that deviates from RFC 959 / 4217 in several ways. None of these quirks are documented anywhere in the stock plugin or Studio source, so a fresh implementation needs to know all of them up front:
 
-- **Implicit TLS, TCP/990.** The TLS handshake starts immediately after the TCP `connect()`; there is no `AUTH TLS` upgrade dance. A plaintext FTP client that opens 990 and waits for a `220` banner gets nothing — the server is already in TLS mode. See `obn::ftps::Client::connect` in `src/ftps.cpp:265-326`.
-- **Self-signed cert with no usable SAN.** The certificate Bambu's FTPS daemon presents has no SAN that matches the printer's LAN IP, so OpenSSL hostname verification always fails. Run with `SSL_VERIFY_NONE` (this is the same compromise we already make for MQTT against the same printer). Pinning against the bundled `printer.cer` chain works on some firmwares but not all; the C++ client falls back to no-verify when load fails (`src/ftps.cpp:283-293`).
-- **Login is `USER bblp` + `PASS <printer-access-code>`.** The 8-character code shown on the printer screen is the FTPS password. There is no anonymous mode, and no other usernames are accepted. The `bblp` literal is hard-coded in `obn::ftps::ConnectConfig` (`include/obn/ftps.hpp:31`).
-- **Mandatory post-login sequence.** After `230` the client *must* issue `TYPE I` → `PBSZ 0` → `PROT P` in that order before any data-channel command. Skipping `PROT P` (or sending it before `PBSZ`) makes the next `PASV` reply 425/431 depending on firmware. See `src/ftps.cpp:319-324`.
+- **Implicit TLS, TCP/990.** The TLS handshake starts immediately after the TCP `connect()`; there is no `AUTH TLS` upgrade dance. A plaintext FTP client that opens 990 and waits for a `220` banner gets nothing — the server is already in TLS mode.
+- **Self-signed cert with no usable SAN.** The certificate Bambu's FTPS daemon presents has no SAN that matches the printer's LAN IP, so OpenSSL hostname verification always fails. Run with `SSL_VERIFY_NONE` (the same compromise the stock plugin makes for MQTT against the same printer). Pinning against the bundled `printer.cer` chain works on some firmwares but not all.
+- **Login is `USER bblp` + `PASS <printer-access-code>`.** The 8-character code shown on the printer screen is the FTPS password. There is no anonymous mode, and no other usernames are accepted.
+- **Mandatory post-login sequence.** After `230` the client *must* issue `TYPE I` → `PBSZ 0` → `PROT P` in that order before any data-channel command. Skipping `PROT P` (or sending it before `PBSZ`) makes the next `PASV` reply `425`/`431` depending on firmware.
 - **PASV only — `PORT` is not implemented.** The daemon either ignores `PORT` outright or replies `500 Unknown command`. Active mode is not negotiable.
-- **PASV replies with a bogus IP.** The first four digits of the `(h1,h2,h3,h4,p1,p2)` tuple cannot be trusted: most firmwares advertise `0.0.0.0`, some leak a private printer-side address (`192.168.x.x` from the firmware's internal namespace) that is not reachable from the LAN. **Always discard those four octets and reconnect the data socket to the same host that the control connection is on.** Same trick as the C++ `open_data_tcp` (`src/ftps.cpp:334-362`) and the Python proxy's `PrinterFtps.open_data_socket`.
+- **PASV replies with a bogus IP.** The first four digits of the `(h1,h2,h3,h4,p1,p2)` tuple cannot be trusted: most firmwares advertise `0.0.0.0`, some leak a private printer-side address (`192.168.x.x` from the firmware's internal namespace) that is not reachable from the LAN. **Always discard those four octets and reconnect the data socket to the same host the control connection is on.**
 - **Delayed TLS handshake on the data channel.** This is the single biggest gotcha. The wire order for a STOR/RETR/LIST is:
   1. send `PASV`, parse the reply, TCP-connect to the printer's data port (still plaintext);
   2. send the data command (`STOR foo` / `LIST` / …) on the control;
@@ -1801,20 +1809,18 @@ Bambu firmware ships a stripped-down vsftpd / busybox-ftpd hybrid (the exact ima
   6. close (or `SSL_shutdown`) the data socket;
   7. read the `226`/`250` final reply on control.
 
-  If the client tries to TLS-handshake right after the TCP connect (the order most generic FTPS libraries follow), the daemon never starts its half of the handshake and the connection hangs until the data timeout. The C++ wrapper sequences this explicitly (`src/ftps.cpp::stor`, `src/ftps.cpp::retr`, `src/ftps.cpp::list_entries`); the Python proxy does the same in `ProxySession._do_data_transfer`.
-- **Data-channel TLS session reuse.** Bambu's current vsftpd build accepts data sockets without session reuse, but several adjacent FTPS forks (pureftpd hardened, newer vsftpd with `require_ssl_reuse=YES`) refuse otherwise. Safe to always opt in: pull the control session via `SSL_get1_session()` and bind it to the data SSL with `SSL_set_session()` before `SSL_connect()` (`src/ftps.cpp:366-388`). Python equivalent: assign `data_ssock.session = ctrl_ssock.session` before `do_handshake()`.
-- **`MLSD` is not implemented.** `FEAT` does *not* list `MLSD`, and an explicit `MLSD` call returns `500 Unknown command` on every firmware we have observed (O1S / X1 / P1 / P2S / A1). Use `LIST` exclusively. The output is plain `ls -l` with two date variants and timestamps in the printer's *local* time without a timezone hint — we parse it as UTC and accept the per-firmware skew (`src/ftps_parse.hpp::parse_ls_line`):
+  If the client tries to TLS-handshake right after the TCP connect (the order most generic FTPS libraries follow), the daemon never starts its half of the handshake and the connection hangs until the data timeout.
+- **Data-channel TLS session reuse.** Bambu's current vsftpd build accepts data sockets without session reuse, but several adjacent FTPS forks (pureftpd hardened, newer vsftpd with `require_ssl_reuse=YES`) refuse otherwise. Safe to always opt in: pull the control session via `SSL_get1_session()` and bind it to the data SSL with `SSL_set_session()` before `SSL_connect()`.
+- **`MLSD` is not implemented.** `FEAT` does *not* list `MLSD`, and an explicit `MLSD` call returns `500 Unknown command` on every observed firmware (O1S / X1 / P1 / P2S / A1). Use `LIST` exclusively. The output is plain `ls -l` with two date variants and timestamps in the printer's *local* time without a timezone hint:
   ```text
   -rwxr-xr-x  1 0 0     12345 Oct 21 12:34 name        # recent (HH:MM, year implicit)
   -rwxr-xr-x  1 0 0  98765432 Oct 21  2020 name        # old / future (year explicit, no HH:MM)
   ```
-- **`NLST` is unreliable.** Some firmwares return clean filenames; others return the full `ls -l` block, and a few reply `502`. Treat `NLST` as a hint only and always be prepared to fall back to `LIST` + parse-and-extract-name — that is what `tools/bambu_ftp_proxy.py::parse_ls_name` does for clients that issue `NLST`.
+- **`NLST` is unreliable.** Some firmwares return clean filenames; others return the full `ls -l` block, and a few reply `502`. Treat `NLST` as a hint only and always be prepared to fall back to `LIST` + parse-and-extract-name.
 - **No `MKD` / `RMD` / `APPE` / `REST` / `RNFR` / `RNTO` / `MDTM`.** Either the command is not wired up (response: `502 Command not implemented`) or it is gated off (response: `550`). In particular: you cannot create a directory over FTPS, and you cannot resume an interrupted `STOR` — Studio's "upload retry" flow re-uploads from byte 0. `SIZE` *is* implemented (`213 <bytes>`), `DELE` is implemented, `CWD` works, `PWD` is hit-and-miss across firmwares.
-- **Idle timeout ≈ 5 minutes.** The control connection is torn down silently (no `421 Timeout` first) once it has been idle for roughly 5 minutes. The plugin handles this with the reconnect-on-stale retry in `stubs/BambuSource.cpp::reconnect_ftp`; the standalone Python proxy lets the session die and waits for the next plaintext-side connect to re-login.
-- **Strictly serial commands.** Pipelining or concurrent commands on the same control connection is not safe — the daemon can desynchronise its reply queue. Always wait for the previous reply (or, for data commands, the closing `226`) before sending the next command. `src/ftps.cpp` and the Python proxy both keep the control loop strictly serial.
+- **Idle timeout ≈ 5 minutes.** The control connection is torn down silently (no `421 Timeout` first) once it has been idle for roughly 5 minutes. The simplest fix is a reconnect-on-stale retry on the next request.
+- **Strictly serial commands.** Pipelining or concurrent commands on the same control connection is not safe — the daemon can desynchronise its reply queue. Always wait for the previous reply (or, for data commands, the closing `226`) before sending the next command.
 - **Only the bare command set is implemented.** From RFC 959 Bambu firmware reliably implements: `USER`, `PASS`, `TYPE` (`I` only — `A` is accepted but `STOR` of an ASCII file still ships the bytes verbatim), `PBSZ`, `PROT`, `PASV`, `LIST`, `RETR`, `STOR`, `DELE`, `SIZE`, `CWD`, `CDUP`, `PWD` (sometimes), `NOOP`, `QUIT`. Everything else is best-effort or missing.
-
-A standalone reference implementation that exercises every quirk above lives in `tools/bambu_ftp_proxy.py` — it is a single-file plaintext-FTP-server-to-Bambu-FTPS-client bridge that lets any FTP client (lftp, curl, GNOME Files, Nautilus over GVfs, …) talk to the printer without speaking FTPS at all. Useful for debugging the wire layer in isolation from the rest of the plugin.
 
 ### 7.7. Lifetime, error propagation and reconnect
 
@@ -1825,7 +1831,7 @@ A few practical contracts that the Studio code path enforces but does not docume
 - **`Bambu_ReadSample` controls the wakeup cadence**. On the file-browser tunnel the worker calls `Bambu_ReadSample` with no separate condvar — it relies on the plugin returning `Bambu_would_block` instead of blocking forever. A plugin that blocks indefinitely freezes the tab.
 - **Negative return values are fatal**. Anything outside `{0, Bambu_stream_end, Bambu_would_block, Bambu_buffer_limit}` makes Studio call `Bambu_Close` + `Bambu_Destroy` and try to re-open the tunnel from scratch. (`PrinterFileSystem.cpp:1577-1593`.)
 - **Logger callback is signal-safe**. `Bambu_SetLogger` is invoked from arbitrary threads; the receiving callback inside Studio (`bambu_log` in `wxMediaCtrl2.mm`, `DumpLog` in `PrinterFileSystem.cpp`) is wrapped to be reentrant. The plugin must not assume the callback runs on a particular thread.
-- **Race between `Bambu_Close` and a streaming reader**. Studio assumes that once `Bambu_Close` returns it is safe to also call `Bambu_Destroy`, even if another thread was blocked inside `Bambu_ReadSample` a microsecond earlier. A correct plugin must therefore either gracefully unblock the reader (via `shutdown(SHUT_RDWR)` on the underlying socket, etc.) or serialise the two; failing to do so manifests as a use-after-free during reconnect. See the comment block in `stubs/BambuSource.cpp::tunnel_close` for our concrete fix.
+- **Race between `Bambu_Close` and a streaming reader**. Studio assumes that once `Bambu_Close` returns it is safe to also call `Bambu_Destroy`, even if another thread was blocked inside `Bambu_ReadSample` a microsecond earlier. A correct plugin must therefore either gracefully unblock the reader (via `shutdown(SHUT_RDWR)` on the underlying socket, etc.) or serialise the two; failing to do so manifests as a use-after-free during reconnect.
 
 ### 7.8. Map of `libBambuSource`-related source locations
 
@@ -1845,7 +1851,6 @@ A few practical contracts that the Studio code path enforces but does not docume
 | CTRL JSON envelope (`cmdtype`/`sequence`/`req`) | `3rd_party/OrcaSlicer/src/slic3r/GUI/Printer/PrinterFileSystem.cpp:1431-1458` |
 | CTRL response dispatch | `3rd_party/OrcaSlicer/src/slic3r/GUI/Printer/PrinterFileSystem.cpp:1567-1596` |
 | Camera UI panel and state machine | `3rd_party/OrcaSlicer/src/slic3r/GUI/MediaPlayCtrl.cpp` |
-| Our C-ABI implementation | `stubs/BambuSource.cpp` |
 
 ---
 

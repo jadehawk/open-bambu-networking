@@ -219,9 +219,11 @@ Source: [src/abi_print.cpp](src/abi_print.cpp).
 
 Source: [src/abi_camera.cpp](src/abi_camera.cpp).
 
+This `bambu_networking.so` group only covers the **cloud / TUTK** camera URL accessors. The actual LAN live view never enters here — Studio's `MediaPlayCtrl` builds its own `bambu:///local/…` or `bambu:///rtsps___…` URL and hands it straight to `libBambuSource.so` (see the [`libBambuSource.so` second library](#libbambusourceso-second-library) section below for that path's status).
+
 | Function | Status | Notes |
 | --- | :--: | --- |
-| `bambu_network_get_camera_url` | 🔒 | Stock returns a `bambu:///tutk?...` URL that cannot be minted without the proprietary TUTK / Agora SDK. Callback is invoked with an empty string; Studio drives itself into its normal "connection failed" path. LAN camera never reaches this entry point — `MediaPlayCtrl` takes the native LAN branch served by `libBambuSource` directly. |
+| `bambu_network_get_camera_url` | 🔒 | Stock returns a `bambu:///tutk?...` URL that cannot be minted without the proprietary TUTK / Agora SDK. Callback is invoked with an empty string; Studio drives itself into its normal "connection failed" path. |
 | `bambu_network_get_camera_url_for_golive` | 🔒 | Same as above, for the Go-Live flow. |
 | `bambu_network_get_hms_snapshot` | 🔒 | HMS photo snapshot is cloud-only and requires the same SDK. Callback is invoked with `("", -1)`. |
 
@@ -308,6 +310,66 @@ For `bambu:///local/*` URLs the fast path serves the whole `ft_*` bus over FTPS 
 
 ---
 
+## `libBambuSource.so` (second library)
+
+Bambu Studio loads two cooperating shared objects from `<data_dir>/plugins/`: `libbambu_networking.so` (everything above this section) and **`libBambuSource.so`**, a separate artefact with its own loader, its own symbol prefix (`Bambu_*`), and its own per-platform back-ends. It serves the camera **live view** and the on-printer **file browser**. See [NETWORK_PLUGIN.md § 7](NETWORK_PLUGIN.md#7-the-libbambusource-library) for the full reverse-engineered contract.
+
+Source: [stubs/BambuSource.cpp](stubs/BambuSource.cpp), [stubs/rtsp_client.cpp](stubs/rtsp_client.cpp), [stubs/rtsp_passthrough.cpp](stubs/rtsp_passthrough.cpp).
+
+The build is intentionally minimal-dependency: only OpenSSL and zlib, **no `libavcodec` / `libavutil` / `libswscale` / `live555`**. RTSPS is handled by an in-process custom client (TLS + RTSP/Digest auth + RTP/TCP-interleaved depacketisation + Annex-B reassembly) that hands raw H.264 byte stream out via `Bambu_ReadSample`; the slicer-side `gstbambusrc` element does the decode (`h264parse + avdec_h264 / openh264dec / vaapih264dec`).
+
+### Tunnel C ABI (camera + file-browser source path)
+
+| Function | Status | Notes |
+| --- | :--: | --- |
+| `Bambu_Init` | ✅ | No-op; matches stock libs. |
+| `Bambu_Create` | ✅ | Allocates a tunnel, parses the `bambu://` URL into `Scheme::Local` (MJPG/6000), `Scheme::Rtsp[s]` (322), or CTRL flavour. Returns `Bambu_success` for known schemes, `-1` otherwise. |
+| `Bambu_Destroy` | ✅ | Joins worker threads, closes sockets, frees buffers. Safe to call after a half-failed `Bambu_Open`. |
+| `Bambu_Open` | ✅ | Dispatches on URL scheme: TLS-handshake + 80-byte auth packet for MJPG-6000; full RTSP/RTSPS handshake (OPTIONS / DESCRIBE / SETUP / PLAY) + worker thread for 322; CTRL bridge bring-up for the file-browser tunnel. |
+| `Bambu_Close` | ✅ | `shutdown(SHUT_RDWR)` on the underlying socket so any thread blocked in `Bambu_ReadSample` returns promptly, then waits for the worker. |
+| `Bambu_StartStream` | ✅ | Marks the tunnel as "video-only" and starts producing samples. Stock semantics. |
+| `Bambu_StartStreamEx` | ✅ | Switches the tunnel into CTRL/JSON-RPC mode (`type=0x3001`) when Studio drives the file-browser flow. |
+| `Bambu_GetStreamCount` / `Bambu_GetStreamInfo` | ✅ | Reports `1 × VIDE` track. `sub_type` is `MJPG` for port-6000 streams and `AVC1` for RTSPS streams. |
+| `Bambu_GetDuration` | ✅ | Returns `0` (live stream, unknown total duration), matching stock. |
+| `Bambu_ReadSample` | ✅ | Pulls one access unit from the active backend. MJPG: 16-byte framed JPEG + payload. RTSPS: Annex-B-prefixed H.264 access unit (SPS/PPS re-prepended on every IDR so a late-joining decoder always recovers). CTRL: `json + \n\n + optional binary` envelope. |
+| `Bambu_SendMessage` | ✅ | Used by the file-browser path to enqueue CTRL JSON requests. |
+| `Bambu_SetLogger` | ✅ | Stored on the tunnel; routed through the same level-aware sink the rest of the library uses (see [README — `libBambuSource.so` logging](README.md#libbambusourceso-logging)). |
+| `Bambu_GetLastErrorMsg` | ✅ | Thread-local last-error string, populated by every TLS / RTSP / FTPS error site. |
+| `OBJC_CLASS_$_BambuPlayer` (macOS) | ❌ | Not exported. macOS Studio's camera tab will sit at `MEDIASTATE_LOADING` because the dlsym fails (Studio explicitly handles a missing symbol — no crash). The CTRL/file-browser path through `Bambu_*` keeps working on macOS. |
+
+### Camera live view (per camera protocol)
+
+| Camera transport | Applies to | Status | Notes |
+| --- | --- | :--: | --- |
+| MJPEG over TLS, port 6000 | A1 / A1 mini / P1 / P1P | ✅ (not tested) | TLS + 80-byte auth + 16-byte framed JPEG samples; passes JPEG bytes through to `gstbambusrc`'s `jpegdec`. No A-series hardware available for on-device verification. |
+| RTSPS → H.264 byte-stream, port 322 | X1 / X1C / X1E / P1S / P2S / H-series / X2D | ✅ (tested on P2S) | Custom in-process RTSP/RTSPS client; raw H.264 Annex-B byte stream out (same wire format the stock plugin produces). Slicer-side `gstbambusrc` decodes with `h264parse + avdec_h264 / openh264dec`. |
+| Cloud camera (TUTK / Agora p2p) | any printer over WAN | 🔒 | Proprietary SDK; out of scope. Stays on the LAN/Developer-Mode path. |
+
+### File browser (CTRL bridge)
+
+The CTRL bridge serves Studio's "Device → Files" tab over the same camera tunnel (TLS/6000) by switching it into JSON-RPC mode via `Bambu_StartStreamEx(CTRL_TYPE = 0x3001)`. Each command is mapped onto one or more FTPS operations on TCP/990 (the FTPS connection is opened by the plugin, transparent to Studio).
+
+| `cmdtype` | Status | Notes |
+| --- | :--: | --- |
+| `LIST_INFO` (0x0001) | ✨ (tested on P2S) | FTPS `LIST <prefix>/<storage>`; `prefix` is auto-detected per firmware (sdcard/usb/root). |
+| `SUB_FILE` (0x0002) | ✨ (tested on P2S) | FTPS `RETR` of the requested entry; for `Metadata/plate_*.png` thumbnails the whole `.3mf` is fetched into memory and the entry is `inflate`d with zlib. |
+| `FILE_DEL` (0x0003) | ✨ (tested on P2S) | FTPS `DELE` per path. |
+| `FILE_DOWNLOAD` (0x0004) | ✨ (tested on P2S) | Streaming FTPS `RETR` with 256 KB `CONTINUE` chunks. |
+| `FILE_UPLOAD` (0x0005) | ❌ | Not implemented; Studio does uploads through the `ft_*` ABI instead. |
+| `REQUEST_MEDIA_ABILITY` (0x0007) | ✨ (tested on P2S) | Static answer derived from FTPS storage probing (`sdcard` advertised when probing succeeds, with the right `home_flag`). |
+| `TASK_CANCEL` (0x1000) | ✅ | Cancels the in-flight request on the worker. |
+| `LIST_CHANGE_NOTIFY` (0x0100) | ✅ | Re-emits `LIST_INFO` toward Studio. |
+| `LIST_RESYNC_NOTIFY` (0x0101) | ✅ | Forces a full re-fetch. |
+
+### What this section deliberately does not implement
+
+| Feature | Status | Notes |
+| --- | :--: | --- |
+| Windows DirectShow source filter (CLSID `{233E64FB-…}`) | ❌ | Required for camera live view on Windows; out of scope (substantial separate filter implementation). The `Bambu_*` C ABI for the file browser is portable and would work on Windows. |
+| macOS Objective-C `BambuPlayer` class | ❌ | Required for camera live view on macOS; not shipped. The `Bambu_*` C ABI for the file browser still works on macOS once the dylib is built. |
+
+---
+
 ## Cross-reference
 
 | Reference | Location |
@@ -315,5 +377,7 @@ For `bambu:///local/*` URLs the fast path serves the whole `ft_*` bus over FTPS 
 | ABI contract (canonical function list) | [NETWORK_PLUGIN.md § 6](NETWORK_PLUGIN.md#6-the-full-c-abi-contract) |
 | Common cloud HTTPS transport (hosts, bearer, response envelopes) | [NETWORK_PLUGIN.md § 6.10.1](NETWORK_PLUGIN.md#6101-common-cloud-transport) |
 | Filament Manager REST shapes (MITM) | [NETWORK_PLUGIN.md § 6.15](NETWORK_PLUGIN.md#615-filament-manager-cloud-spool-catalogue) |
+| `libBambuSource` C ABI, camera URL formats, CTRL bridge | [NETWORK_PLUGIN.md § 7](NETWORK_PLUGIN.md#7-the-libbambusource-library) |
+| FTPS dialect quirks (used by `libBambuSource` CTRL bridge and by `ft_*`) | [NETWORK_PLUGIN.md § 7.6.3](NETWORK_PLUGIN.md#763-ftps-dialect-quirks) |
 | Feature-level status tables (per-model) | [README.md](README.md) |
 | Workaround rationale | [README.md § Workaround reference](README.md#workaround-reference) |
