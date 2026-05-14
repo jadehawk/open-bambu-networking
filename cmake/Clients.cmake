@@ -47,8 +47,7 @@
 #
 #   OBN_CLIENT_CONF_NAME
 #       File name of the slicer's conf file ("BambuStudio.conf" or
-#       "OrcaSlicer.conf"). Used by the patch script template and by the
-#       "expected install prefix" gate.
+#       "OrcaSlicer.conf"). Used by the patch script template.
 #
 #   OBN_CLIENT_DEFAULT_PREFIX
 #       Recommended default install prefix (Linux only). Native config
@@ -56,12 +55,6 @@
 #       (~/.var/app/<app-id>/config/<dir>) is used only when the native
 #       one is missing AND the Flatpak one exists. Empty on non-Linux
 #       or when $HOME is unset.
-#
-#   OBN_CLIENT_EXPECTED_PREFIXES
-#       Semicolon-separated list of install-time prefixes where the
-#       conf-patch script is allowed to run. Contains both the native
-#       and the Flatpak path for the selected client so a user who
-#       passed --prefix= to either still gets the patch.
 
 function(obn_resolve_client client_type)
     if(NOT client_type STREQUAL "bambu_studio" AND
@@ -119,7 +112,6 @@ function(obn_resolve_client client_type)
         # <data_dir> == %APPDATA%\BambuStudio (or \OrcaSlicer). No Flatpak
         # equivalent on Windows.
         set(OBN_CLIENT_DEFAULT_PREFIX     "${_client_appdata}" PARENT_SCOPE)
-        set(OBN_CLIENT_EXPECTED_PREFIXES  "${_client_appdata}" PARENT_SCOPE)
     elseif(UNIX AND NOT APPLE AND NOT _home STREQUAL "")
         # Native preferred; Flatpak only as a fallback when native is missing.
         # Mirrors the priority in ./configure. Same shape for both clients.
@@ -130,9 +122,7 @@ function(obn_resolve_client client_type)
         else()
             set(OBN_CLIENT_DEFAULT_PREFIX "${_client_native}"  PARENT_SCOPE)
         endif()
-        set(OBN_CLIENT_EXPECTED_PREFIXES "${_client_native};${_client_flatpak}" PARENT_SCOPE)
     else()
         set(OBN_CLIENT_DEFAULT_PREFIX     ""  PARENT_SCOPE)
-        set(OBN_CLIENT_EXPECTED_PREFIXES  ""  PARENT_SCOPE)
     endif()
 endfunction()

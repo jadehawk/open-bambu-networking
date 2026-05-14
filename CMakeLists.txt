@@ -138,11 +138,9 @@ option(OBN_ENABLE_WORKAROUNDS "Enable non-stock workaround paths (see README)" O
 #                   "network_plugin_version"="<OBN_VERSION>",
 #                   "network_plugin_remind_later"="true", and our version
 #                   is stripped from "network_plugin_skipped_versions".
-# The patch only runs when the install prefix is a default config dir
-# for the selected --client-type; if you installed into a staging tree
-# with --prefix=..., the per-user config is untouched regardless of
-# this flag. A backup file (*.obn-bak) is written whenever the file
-# actually changes.
+# The patch edits "${CMAKE_INSTALL_PREFIX}/<conf file>". Disable with
+# -DOBN_PATCH_CLIENT_CONF=OFF or ./configure --no-conf-patch (e.g. staging).
+# A backup file (*.obn-bak) is written whenever the file actually changes.
 #
 # OBN_PATCH_STUDIO_CONF is kept as a backward-compat alias -- existing
 # CMake caches set the old name and we want them to keep working.

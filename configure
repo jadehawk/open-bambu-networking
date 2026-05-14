@@ -94,9 +94,8 @@ Optional features:
                              --disable-tests.
   --no-conf-patch            'make install' will not edit the slicer's
                              conf file (BambuStudio.conf or
-                             OrcaSlicer.conf). The patch only runs when
-                             the install prefix is the default config
-                             dir for the selected --client-type anyway.
+                             OrcaSlicer.conf). Use this for staging or
+                             if you manage the conf yourself.
   --enable-static-mosquitto  Link the system libmosquitto.a (pkg-config
                              --static). Only for the non-vendor build; if
                              you pass --vendor-mosquitto you do not need this
@@ -433,8 +432,8 @@ Next steps:
   make install     # install (delegates to: cmake --install $BUILD_DIR)
                    # also patches:
                    #   $patch_target_conf
-                   # when installing to the default config dir for the
-                   # selected --client-type
+                   # when OBN_PATCH_CLIENT_CONF is enabled and the patch
+                   # script runs (see CMakeLists.txt)
   make test        # run the smoke tests
 
 Re-run './configure --help' for the full list of options.
