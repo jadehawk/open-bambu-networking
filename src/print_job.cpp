@@ -317,9 +317,11 @@ int ftp_upload(const BBL::PrintParams&    p,
 
     obn::ftps::ConnectConfig cfg;
     cfg.host     = p.dev_ip;
+    cfg.port     = p.use_ssl_for_ftp ? 990 : 21;
     cfg.username = p.username.empty() ? std::string{"bblp"} : p.username;
     cfg.password = p.password;
     cfg.ca_file  = ca_file;
+    cfg.use_tls  = p.use_ssl_for_ftp;
 
     obn::ftps::Client cli;
     if (std::string err = cli.connect(cfg); !err.empty()) {

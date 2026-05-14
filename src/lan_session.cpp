@@ -112,9 +112,13 @@ int LanSession::start(ConnectedCb on_connected, MessageCb on_message)
         if (on_message_) on_message_(dev_id_, msg.payload);
     });
 
+    if (!use_ssl_) {
+        OBN_DEBUG("LanSession: use_ssl=false, connecting plain on port 1883");
+    }
+
     mqtt::ConnectConfig cfg;
     cfg.host         = dev_ip_;
-    cfg.port         = 8883;
+    cfg.port         = use_ssl_ ? 8883 : 1883;
     cfg.username     = username_;
     cfg.password     = password_;
     cfg.use_tls      = use_ssl_;
@@ -124,7 +128,8 @@ int LanSession::start(ConnectedCb on_connected, MessageCb on_message)
     cfg.tls_insecure = true;
     cfg.keepalive_s  = 60;
 
-    OBN_INFO("LanSession tls ca_file=%s",
+    OBN_INFO("LanSession tls=%d ca_file=%s",
+             use_ssl_ ? 1 : 0,
              ca_file_.empty() ? "<none, accepting any>" : ca_file_.c_str());
 
     int rc = client_->connect(cfg);
