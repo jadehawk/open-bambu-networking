@@ -2895,7 +2895,7 @@ Older Studio builds also used logical labels **`sdcard`** / **`usb`** in `REQUES
 
 #### 7.6.1.1. Observed FTPS filesystem layout (LAN probe)
 
-FTPS :990 is a **separate** service from the stock file browser (§7.5.1). Layout below is from direct `CWD`/`LIST` probes — relevant for **`verify_job` preflight** (§6.14.3), legacy LAN print `STOR`, and the optional `OBN_CTRL_FTPS_FALLBACK` file-browser path. **Not** used for normal P2S Device → Files (native `:6000`) or Send-to-Printer cache upload (`:6000` `ft_*`, §6.14.2).
+FTPS :990 is a **separate** service from the stock file browser (§7.5.1). Layout below is from direct `CWD`/`LIST` probes — relevant for **`verify_job` preflight** (§6.14.3) and legacy LAN print `STOR`. **Not** used for P2S Device → Files (native `:6000`) or Send-to-Printer cache upload (`:6000` `ft_*`, §6.14.2).
 
 **P2S (May 2026):**
 

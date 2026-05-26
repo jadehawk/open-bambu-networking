@@ -446,18 +446,16 @@ The build is intentionally minimal-dependency: only OpenSSL and zlib, **no `liba
 
 Studio opens TLS **:6000** via `libBambuSource.so`, runs `Bambu_StartStreamEx(CTRL_TYPE)`, then exchanges framed CTRL JSON (`LIST_INFO`, `SUB_FILE`, `FILE_DOWNLOAD`, …) — same as stock ([NETWORK_PLUGIN.md §7.5.1](NETWORK_PLUGIN.md#751-where-the-printer-side-bytes-actually-come-from)).
 
-**Default (open plugin, May 2026):** `start_native_ctrl_handshake()` keeps the socket open and **forwards** each Studio JSON request to firmware (`native_ctrl_send_worker`). Thumbnails use stock **`SUB_FILE`**: e.g. `req.paths=["/foo.gcode.3mf#thumbnail"]` → firmware returns PNG bytes; no client-side ZIP parse on this path.
+**Default (open plugin, May 2026):** `start_native_ctrl_handshake()` keeps the socket open and **forwards** each Studio JSON request to firmware (`native_ctrl_send_worker`). Thumbnails use stock **`SUB_FILE`**: e.g. `req.paths=["/foo.gcode.3mf#thumbnail"]` → firmware returns PNG bytes; no client-side ZIP parse.
 
-**Legacy fallback:** `OBN_CTRL_FTPS_FALLBACK=1` → in-process FTPS translator (`ctrl_worker_main`) for external USB only. Not the normal P2S path.
-
-| `cmdtype` | Default (native :6000) | FTPS fallback |
-| --- | :--: | :--: |
-| `LIST_INFO` (0x0001) | ✅ passthrough | ✨ FTPS `LIST` (external USB) |
-| `SUB_FILE` (0x0002) | ✅ passthrough (`#thumbnail`, zip mode) | ✨ client ZIP extract |
-| `FILE_DOWNLOAD` (0x0004) | ✅ passthrough | ✨ FTPS `RETR` |
-| `FILE_DEL` (0x0003) | ✅ passthrough | ✨ FTPS `DELE` |
-| `REQUEST_MEDIA_ABILITY` (0x0007) | ✅ passthrough | ✨ FTPS probe |
-| `TASK_CANCEL` (0x1000) | ✅ | ✅ |
+| `cmdtype` | Status |
+| --- | :--: |
+| `LIST_INFO` (0x0001) | ✅ passthrough |
+| `SUB_FILE` (0x0002) | ✅ passthrough (`#thumbnail`, zip mode) |
+| `FILE_DOWNLOAD` (0x0004) | ✅ passthrough |
+| `FILE_DEL` (0x0003) | ✅ passthrough |
+| `REQUEST_MEDIA_ABILITY` (0x0007) | ✅ passthrough |
+| `TASK_CANCEL` (0x1000) | ✅ passthrough |
 
 Send to Printer uploads use `ft_*` in `libbambu_networking.so` (§6.14), not this CTRL channel.
 

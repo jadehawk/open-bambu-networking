@@ -128,7 +128,6 @@ endif()
 #   - push_status home_flag / ipcam.file rewrites (Studio UI on P2S)
 #   - in-print Device-panel cover (get_subtask_info + cover_cache)
 #   - start_sdcard_print over LAN MQTT instead of signed cloud REST
-#   - libBambuSource FTPS CTRL fallback (OBN_CTRL_FTPS_FALLBACK=1 only)
 option(OBN_ENABLE_WORKAROUNDS "Enable non-stock workaround paths (see README)" ON)
 
 # When ON, 'cmake --install' (and therefore 'make install') will also
@@ -291,7 +290,6 @@ add_library(bambu_networking SHARED
     src/tunnel_local.cpp
     src/tunnel_upload.cpp
     src/tls_dial.cpp
-    src/zip_reader.cpp
 )
 
 target_include_directories(bambu_networking PRIVATE include)
@@ -366,25 +364,12 @@ endif()
 # the gstreamer path always aborted with a libjpeg ABI clash inside
 # Studio's AppImage.
 
-# zlib is pulled in for the Metadata/plate_*.png unpacker used by
-# PrinterFileSystem to serve 3mf thumbnails directly from FTPS.
-find_package(ZLIB REQUIRED)
-
-# Image decode/encode for the thumbnail letterbox path is handled by
-# the vendored stb_image / stb_image_write headers under
-# stubs/third_party/. We deliberately do *not* link libpng / libjpeg
-# into BambuSource: see stubs/image_io.hpp for why (libjpeg-turbo ABI
-# tag mismatch with Studio's bundled GStreamer plugins inside the same
-# process), and the comment block in stubs/BambuSource.cpp around
-# `using DecodedRGBA = obn::image::DecodedRGBA;`.
-
-# BambuSource ships the PrinterFileSystem CTRL bridge (FTPS-backed file
-# browser for X1/P1S/P2S/A-series in LAN mode) AND the RTSP/RTSPS
-# Annex-B H.264 passthrough used by the live view, so it needs ftps +
-# json + log from the core tree. Compile them in directly instead of
-# linking against libbambu_networking to keep the shared-object
-# self-contained (Studio dlopens BambuSource *before* it loads the
-# network plugin).
+# BambuSource ships the PrinterFileSystem CTRL passthrough (:6000) AND
+# the RTSP/RTSPS Annex-B H.264 passthrough used by the live view, so it
+# needs json + tunnel_local + log from the core tree. Compile them in
+# directly instead of linking against libbambu_networking to keep the
+# shared-object self-contained (Studio dlopens BambuSource *before* it
+# loads the network plugin).
 #
 # Single source list shared by Linux/macOS/Windows: the porting of
 # BambuSource.cpp / rtsp_client.cpp / tls_socket.cpp through obn::os_compat
@@ -395,19 +380,16 @@ find_package(ZLIB REQUIRED)
 # Phase B and lives inside the same DLL.
 set(_obn_bambusource_sources
     stubs/BambuSource.cpp
-    stubs/image_io.cpp
     stubs/source_log.cpp
     stubs/tls_socket.cpp
     stubs/rtsp_client.cpp
     stubs/rtsp_passthrough.cpp
-    src/ftps.cpp
     src/json_lite.cpp
     src/tunnel_local.cpp
     src/tls_dial.cpp
     src/lan_tls.cpp
     src/log.cpp
     src/os_compat.cpp
-    src/zip_reader.cpp
 )
 if(WIN32)
     list(APPEND _obn_bambusource_sources
@@ -420,31 +402,12 @@ if(WIN32)
     )
 endif()
 
-# stb_image_write triggers -Wmissing-field-initializers on the
-# stbi__write_context partial brace initialiser. It is upstream code
-# we do not want to patch; isolate the warning suppression to the
-# translation unit that includes the stb implementations. MSVC has its
-# own analogue that can flag the same code, but the warning level we
-# use does not enable it -- skip the suppression there.
-if(NOT MSVC)
-    set_source_files_properties(stubs/image_io.cpp PROPERTIES
-        COMPILE_FLAGS "-Wno-missing-field-initializers")
-endif()
-
 add_library(BambuSource SHARED ${_obn_bambusource_sources})
 target_include_directories(BambuSource PRIVATE include stubs)
-target_compile_definitions(BambuSource PRIVATE
-    OBN_ENABLE_WORKAROUNDS=$<BOOL:${OBN_ENABLE_WORKAROUNDS}>
-)
 if(WIN32)
     set_target_properties(BambuSource PROPERTIES OUTPUT_NAME "BambuSource" PREFIX "")
-    # OpenSSL + zlib are common to both halves (TLS for MJPG/RTSP, zlib for
-    # the 3MF thumbnail extraction). Winsock + COM/DShow + advapi32 cover
-    # the Windows-specific paths: socket primitives, IBaseFilter etc., and
-    # registry I/O for DllRegisterServer.
     target_link_libraries(BambuSource PRIVATE
         OpenSSL::SSL OpenSSL::Crypto
-        ZLIB::ZLIB
         ws2_32 crypt32 secur32 bcrypt iphlpapi
         strmiids ole32 oleaut32 uuid
         advapi32 shell32 user32
@@ -453,7 +416,6 @@ else()
     set_target_properties(BambuSource PROPERTIES OUTPUT_NAME "BambuSource" PREFIX "lib")
     target_link_libraries(BambuSource PRIVATE
         OpenSSL::SSL OpenSSL::Crypto
-        ZLIB::ZLIB
     )
 endif()
 
@@ -711,8 +673,7 @@ if(OBN_BUILD_TESTS AND NOT WIN32)
         src/ssdp.cpp
         src/tls_dial.cpp
         src/tunnel_local.cpp
-        src/tunnel_upload.cpp
-        src/zip_reader.cpp)
+        src/tunnel_upload.cpp)
     target_include_directories(lan_live_test PRIVATE include)
     target_compile_definitions(lan_live_test PRIVATE
         OBN_VERSION_STRING="${OBN_VERSION}"
