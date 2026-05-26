@@ -41,11 +41,6 @@ enum Level : int {
 // times; skipped if OBN_LOG_FILE was set explicitly via env.
 void configure_from_log_dir(const std::string& log_dir);
 
-// One-line "Loaded Open Bamboo Networking plugin …" banner. Always writes to
-// stderr (once). Also writes to the log file sink when one is open — safe to
-// call again after configure_from_log_dir opens obn.log. Bypasses log level.
-void emit_plugin_load_banner();
-
 // Low-level emitter. Use the OBN_* macros below instead of calling directly.
 // `__attribute__((format(printf,...)))` is GCC/Clang-only; MSVC accepts the
 // equivalent _Printf_format_string_ SAL annotation through <sal.h> but for

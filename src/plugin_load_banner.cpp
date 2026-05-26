@@ -1,8 +1,12 @@
-// Emits a one-line load banner to stderr (and to the log file once it is
-// open) when libbambu_networking is mapped into the process. Runs outside
-// the normal OBN_* log level gate so bug reports always carry a build id.
+// One-line stderr banner when libbambu_networking is mapped into the process.
+//
+// MUST stay loader-lock safe: no mutexes, no fopen/getenv, no calls into the
+// obn logger (see STATUS.md / dshow_filter DllMain notes). File logging of
+// the same line is deferred to log.cpp once Studio calls create_agent.
 
-#include "obn/log.hpp"
+#include "obn/build_identity.hpp"
+
+#include <cstdio>
 
 #if defined(_WIN32)
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -13,9 +17,12 @@
 
 namespace {
 
-void emit_once()
+void emit_load_banner_stderr()
 {
-    obn::log::emit_plugin_load_banner();
+    std::fputs("[obn] ", stderr);
+    std::fputs(OBN_PLUGIN_LOAD_BANNER_MSG, stderr);
+    std::fputc('\n', stderr);
+    std::fflush(stderr);
 }
 
 } // namespace
@@ -25,7 +32,7 @@ void emit_once()
 extern "C" BOOL WINAPI DllMain(HINSTANCE /*hinst*/, DWORD reason, LPVOID /*reserved*/)
 {
     if (reason == DLL_PROCESS_ATTACH)
-        emit_once();
+        emit_load_banner_stderr();
     return TRUE;
 }
 
@@ -34,7 +41,7 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE /*hinst*/, DWORD reason, LPVOID /*reser
 __attribute__((constructor))
 static void obn_plugin_load_banner_ctor()
 {
-    emit_once();
+    emit_load_banner_stderr();
 }
 
 #endif

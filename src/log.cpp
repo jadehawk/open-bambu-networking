@@ -1,5 +1,6 @@
 #include "obn/log.hpp"
 
+#include "obn/build_identity.hpp"
 #include "obn/os_compat.hpp"
 
 #include <atomic>
@@ -102,6 +103,17 @@ void ensure_initialized_locked(State& s)
     // OBN_LOG_TO_FILE (see configure_from_log_dir), or tests set a path.
 }
 
+// Must be called with State::mu held, and only outside the dynamic loader lock.
+void write_load_banner_to_file_locked(State& s)
+{
+    static bool file_done = false;
+    if (file_done || !s.fp || s.fp == stderr) return;
+    std::fputs(OBN_PLUGIN_LOAD_BANNER_MSG, s.fp);
+    std::fputc('\n', s.fp);
+    std::fflush(s.fp);
+    file_done = true;
+}
+
 long tid()
 {
     return obn::os::thread_id();
@@ -138,49 +150,7 @@ void configure_from_log_dir(const std::string& log_dir)
     path += "obn.log";
     open_file_locked(s, path);
     // Note: we do not log the switch here to avoid recursion.
-    emit_plugin_load_banner();
-}
-
-namespace {
-
-std::string plugin_load_banner_message()
-{
-    std::string msg = "Loaded Open Bamboo Networking plugin";
-#ifdef OBN_GIT_COMMIT
-    msg += ", commit #";
-    msg += OBN_GIT_COMMIT;
-#  ifdef OBN_GIT_DIRTY
-    msg += " (dirty)";
-#  endif
-#endif
-    return msg;
-}
-
-} // namespace
-
-void emit_plugin_load_banner()
-{
-    static std::once_flag stderr_once;
-    static bool         file_done = false;
-
-    const std::string msg = plugin_load_banner_message();
-
-    std::call_once(stderr_once, [&] {
-        std::fputs("[obn] ", stderr);
-        std::fputs(msg.c_str(), stderr);
-        std::fputc('\n', stderr);
-        std::fflush(stderr);
-    });
-
-    auto& s = state();
-    std::lock_guard<std::mutex> lk(s.mu);
-    ensure_initialized_locked(s);
-    if (file_done || !s.fp || s.fp == stderr) return;
-
-    std::fputs(msg.c_str(), s.fp);
-    std::fputc('\n', s.fp);
-    std::fflush(s.fp);
-    file_done = true;
+    write_load_banner_to_file_locked(s);
 }
 
 Level threshold()
@@ -225,6 +195,7 @@ void emit(Level lvl, const char* file, int line, const char* func, const char* f
 
     std::lock_guard<std::mutex> lk(s.mu);
     ensure_initialized_locked(s);
+    write_load_banner_to_file_locked(s);
 
     auto write_line = [&](FILE* f, bool obn_stderr_prefix) {
         if (!f) return;
