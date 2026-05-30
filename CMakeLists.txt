@@ -120,16 +120,6 @@ if(NOT CMAKE_CROSSCOMPILING
         CACHE PATH "Install prefix (plugins/ under it)" FORCE)
 endif()
 
-# When ON, the ft_* C ABI used by Studio's "Send to Printer" dialog and
-# the Print job's eMMC pre-flight speaks native BambuTunnelLocal (TLS :6000),
-# same as stock libbambu_networking.so.
-#
-# Non-stock paths gated by OBN_ENABLE_WORKAROUNDS (see README):
-#   - push_status home_flag / ipcam.file rewrites (Studio UI on P2S)
-#   - in-print Device-panel cover (get_subtask_info + cover_cache)
-#   - start_sdcard_print over LAN MQTT instead of signed cloud REST
-option(OBN_ENABLE_WORKAROUNDS "Enable non-stock workaround paths (see README)" ON)
-
 # When ON, 'cmake --install' (and therefore 'make install') will also
 # edit the slicer's conf file so it trusts this plugin:
 #   bambu_studio -> ~/.config/BambuStudio/BambuStudio.conf
@@ -305,7 +295,6 @@ endif()
 target_compile_definitions(bambu_networking PRIVATE
     OBN_VERSION_STRING="${OBN_VERSION}"
     ABI_VERSION=${OBN_ABI_VERSION_HEX}
-    OBN_ENABLE_WORKAROUNDS=$<BOOL:${OBN_ENABLE_WORKAROUNDS}>
     ${_obn_git_compile_defs}
 )
 target_link_libraries(bambu_networking PRIVATE
@@ -385,6 +374,7 @@ set(_obn_bambusource_sources
     stubs/tls_socket.cpp
     stubs/rtsp_client.cpp
     stubs/rtsp_passthrough.cpp
+    src/config.cpp
     src/json_lite.cpp
     src/tunnel_local.cpp
     src/tls_dial.cpp
@@ -612,6 +602,7 @@ if(OBN_BUILD_TESTS AND NOT WIN32)
     target_include_directories(ssdp_listener_test PRIVATE include)
 
     add_executable(ftps_live_test tests/ftps_live_test.cpp
+        src/config.cpp
         src/ftps.cpp
         src/lan_tls.cpp
         src/log.cpp
@@ -650,6 +641,7 @@ if(OBN_BUILD_TESTS AND NOT WIN32)
     add_test(NAME print_url COMMAND print_url_test)
 
     add_executable(tunnel_local_test tests/tunnel_local_test.cpp
+        src/config.cpp
         src/tunnel_local.cpp
         src/tls_dial.cpp
         src/lan_tls.cpp

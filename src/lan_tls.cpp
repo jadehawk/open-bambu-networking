@@ -1,5 +1,6 @@
 #include "obn/lan_tls.hpp"
 
+#include "obn/config.hpp"
 #include "obn/lan_tls_env.hpp"
 #include "obn/log.hpp"
 
@@ -257,7 +258,7 @@ const char* env_var_get(const char* key)
 
 bool verify_enabled()
 {
-    if (skip_verify_from_env()) {
+    if (skip_verify_from_env() || obn::config::current().lan_tls_skip_verify) {
         warn_skip_once();
         return false;
     }

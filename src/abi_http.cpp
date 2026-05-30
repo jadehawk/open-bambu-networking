@@ -7,6 +7,7 @@
 #include "obn/agent.hpp"
 #include "obn/bambu_networking.hpp"
 #include "obn/cloud_auth.hpp"
+#include "obn/config.hpp"
 #include "obn/http_client.hpp"
 #include "obn/json_lite.hpp"
 #include "obn/log.hpp"
@@ -171,7 +172,7 @@ OBN_ABI int bambu_network_get_user_print_info(void* agent,
     // device/<id>/report. Cloud MQTT connect may not have landed yet -
     // CloudSession buffers the desired set and re-applies it on the
     // next CONNACK, so ordering doesn't matter.
-    if (!dev_ids.empty()) {
+    if (!dev_ids.empty() && !obn::config::current().block_cloud) {
         a->cloud_add_subscribe(dev_ids);
     }
 
@@ -245,7 +246,6 @@ OBN_ABI int bambu_network_get_subtask_info(void* agent,
     if (http_code) *http_code = 0;
     if (http_body) http_body->clear();
 
-#if OBN_ENABLE_WORKAROUNDS
     // Synthetic-subtask short-circuit. notify_local_message rewrites
     // zero ids in LAN push_status frames to "lan-<fnv>"; Studio then
     // calls us here to resolve that id. We hand back a minimal
@@ -293,8 +293,6 @@ OBN_ABI int bambu_network_get_subtask_info(void* agent,
             return BAMBU_NETWORK_SUCCESS;
         }
     }
-#endif
-    (void)agent;
     (void)subtask_id;
     return BAMBU_NETWORK_SUCCESS;
 }

@@ -11,7 +11,7 @@ This document tracks how each symbol listed in [NETWORK_PLUGIN.md § 6](NETWORK_
 | 🔒 | Cannot be implemented without proprietary secrets (per-install RSA signing keys, TUTK / Agora SDK). |
 | ⚠️ | Implemented with limitations — the happy path works, but some user-visible behaviour is degraded vs. stock. |
 | 🔒⚠️ | Partial: the secret-protected path is not possible, but the remaining path (typically LAN under Developer Mode) is functional. |
-| ✨ | Implemented via a workaround — end result matches stock behaviour on the **supported subset** but over a different transport or by synthesising the response locally. Known gaps vs stock are called out in the Notes column (see [PrinterFileSystem](#printerfilesystem-mediafilepanel) for internal storage). |
+| ✨ | Implemented via an alternative path — end result matches stock behaviour on the **supported subset** but over a different transport or by synthesising the response locally. Known gaps vs stock are called out in the Notes column (see [PrinterFileSystem](#printerfilesystem-mediafilepanel) for internal storage). |
 | ❓ | Exported for binary compatibility but not currently resolved by Bambu Studio, so behaviour against real Studio code cannot be verified. Body is a minimal stub. |
 
 > Note on `❌`: some of these return `BAMBU_NETWORK_SUCCESS` with an empty payload rather than an error code. This is intentional — the corresponding feature is not wired to any remote backend, and returning success with empty data is what keeps Studio from showing error dialogs for features that are simply unused in this plugin. The "what is actually returned" is stated per row in the Notes column.
@@ -170,7 +170,7 @@ Source: [src/abi_http.cpp](src/abi_http.cpp).
 | `bambu_network_get_user_print_info` | ✅ | Fetches `/v1/iot-service/api/user/bind`, remaps field names (`name` → `dev_name`, `online` → `dev_online`, `print_status` → `task_status`) so Studio's `DeviceManager::parse_user_print_info` finds everything, and implicitly subscribes to `device/<id>/report` for each returned device (matching stock push-delivery behaviour). |
 | `bambu_network_get_user_tasks` | ❌ | Returns `SUCCESS` with empty body; no MakerWorld task history is served. |
 | `bambu_network_get_task_plate_index` | ❌ | Returns `SUCCESS` with `plate_index=-1`. |
-| `bambu_network_get_subtask_info` | ✨ | LAN prints with zero ids → synthetic `lan-<fnv>` on `push_status`; reply includes loopback `thumbnail.url`. Backend: `cover_cache` **SUB_FILE on TLS :6000** (`#thumbnail` / `#Metadata/plate_N.png`). Guarded by `OBN_ENABLE_WORKAROUNDS`. |
+| `bambu_network_get_subtask_info` | ✨ | LAN prints with zero ids → synthetic `lan-<fnv>` on `push_status`; reply includes loopback `thumbnail.url`. Backend: `cover_cache` **SUB_FILE on TLS :6000** (`#thumbnail` / `#Metadata/plate_N.png`). |
 | `bambu_network_get_slice_info` | ❌ | Returns `SUCCESS` with empty body. |
 
 ### 6.15. Filament Manager (cloud spool catalogue)
@@ -461,7 +461,7 @@ Send to Printer uploads use `ft_*` in `libbambu_networking.so` (§6.14), not thi
 
 **In-print Device-panel cover** (separate from file browser): `cover_cache` in `libbambu_networking.so` uses **`SUB_FILE`** on the same `:6000` wire (e.g. `/cache/<subtask>.gcode.3mf#thumbnail`) — see §6.x `get_subtask_info`.
 
-**`ipcam.file` in MQTT `push_status`:** injected on P2S when firmware omits it so Studio opens MediaFilePanel ([README workaround table](README.md#workaround-reference)).
+**`ipcam.file` in MQTT `push_status`:** if firmware advertises this block, Studio opens the MediaFilePanel; P2S firmware includes it natively.
 
 ### Windows DirectShow source filter
 
@@ -531,4 +531,4 @@ If you touch the DirectShow source filter or the `Bambu_*` path on Windows, thre
 | LAN TLS verification & IPC | [STATUS.md § 6.4.1](STATUS.md#641-lan-tls-verification-mqtt-ftps-rtsps-mjpeg) |
 | Windows: MSVC `setvbuf`, wxURI `bambu://` slashes, DirectShow `Paused` vs `Running`, Win32 env IPC | [STATUS.md — Windows-specific footguns](STATUS.md#windows-specific-footguns) |
 | Feature-level status tables (per-model) | [README.md](README.md) |
-| Workaround rationale | [README.md § Workaround reference](README.md#workaround-reference) |
+| Alternative impl reference | [README.md § Alternative implementation reference](README.md#alternative-implementation-reference) |

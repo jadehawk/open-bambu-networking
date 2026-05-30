@@ -103,12 +103,99 @@ static int test_cloud_api_override()
     return 0;
 }
 
+static int test_truthy()
+{
+    CHECK(obn::config::truthy("1") == true);
+    CHECK(obn::config::truthy("0") == false);
+    CHECK(obn::config::truthy("true") == true);
+    CHECK(obn::config::truthy("false") == false);
+    CHECK(obn::config::truthy("True") == true);
+    CHECK(obn::config::truthy("FALSE") == false);
+    CHECK(obn::config::truthy("yes") == true);
+    CHECK(obn::config::truthy("no") == false);
+    CHECK(obn::config::truthy("YES") == true);
+    CHECK(obn::config::truthy("NO") == false);
+    CHECK(obn::config::truthy("junk") == false);
+    CHECK(obn::config::truthy("junk", true) == true);
+    return 0;
+}
+
+static int test_new_keys()
+{
+    const fs::path dir = make_temp_dir();
+    write_conf(dir,
+               "lan_tls_skip_verify = yes\n"
+               "cloud_mqtt_port = 1883\n"
+               "block_cloud = false\n"
+               "force_timelapse_external = 1\n"
+               "bambusource_log_level = debug\n"
+               "bambusource_log_file = /tmp/bs.log\n");
+    const auto cfg = obn::config::load_or_create(dir.string());
+    CHECK(cfg.lan_tls_skip_verify == true);
+    CHECK(cfg.cloud_mqtt_port == 1883);
+    CHECK(cfg.block_cloud == false);
+    CHECK(cfg.force_timelapse_external == true);
+    CHECK(cfg.bambusource_log_level == "debug");
+    CHECK(cfg.bambusource_log_file == "/tmp/bs.log");
+    return 0;
+}
+
+static int test_new_keys_defaults()
+{
+    const fs::path dir = make_temp_dir();
+    write_conf(dir, "log_level = info\n");
+    const auto cfg = obn::config::load_or_create(dir.string());
+    CHECK(cfg.lan_tls_skip_verify == false);
+    CHECK(cfg.cloud_mqtt_port == 8883);
+    CHECK(cfg.block_cloud == true);
+    CHECK(cfg.force_timelapse_external == false);
+    CHECK(cfg.bambusource_log_level.empty());
+    CHECK(cfg.bambusource_log_file.empty());
+    return 0;
+}
+
+static int test_load_if_exists()
+{
+    const fs::path dir = make_temp_dir();
+    auto cfg = obn::config::load_if_exists(dir.string());
+    CHECK(cfg.force_timelapse_external == false);
+    CHECK(cfg.cloud_mqtt_port == 8883);
+
+    write_conf(dir, "force_timelapse_external = 1\ncloud_mqtt_port = 9999\n");
+    cfg = obn::config::load_if_exists(dir.string());
+    CHECK(cfg.force_timelapse_external == true);
+    CHECK(cfg.cloud_mqtt_port == 9999);
+    return 0;
+}
+
+static int test_cloud_mqtt_port_bounds()
+{
+    const fs::path dir = make_temp_dir();
+    write_conf(dir, "cloud_mqtt_port = 0\n");
+    auto cfg = obn::config::load_or_create(dir.string());
+    CHECK(cfg.cloud_mqtt_port == 8883);
+
+    write_conf(dir, "cloud_mqtt_port = 99999\n");
+    cfg = obn::config::load_or_create(dir.string());
+    CHECK(cfg.cloud_mqtt_port == 8883);
+
+    write_conf(dir, "cloud_mqtt_port = abc\n");
+    cfg = obn::config::load_or_create(dir.string());
+    CHECK(cfg.cloud_mqtt_port == 8883);
+    return 0;
+}
+
 int main()
 {
     if (test_parse_keys() != 0) return 1;
     if (test_create_template() != 0) return 1;
     if (test_env_overrides_config() != 0) return 1;
     if (test_cloud_api_override() != 0) return 1;
+    if (test_truthy() != 0) return 1;
+    if (test_new_keys() != 0) return 1;
+    if (test_new_keys_defaults() != 0) return 1;
+    if (test_load_if_exists() != 0) return 1;
+    if (test_cloud_mqtt_port_bounds() != 0) return 1;
     std::cout << "config_test: ok\n";
     return 0;
 }

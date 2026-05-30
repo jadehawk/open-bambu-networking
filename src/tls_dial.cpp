@@ -1,5 +1,6 @@
 #include "obn/tls_dial.hpp"
 
+#include "obn/config.hpp"
 #include "obn/lan_tls.hpp"
 #include "obn/lan_tls_env.hpp"
 #include "obn/net_compat.hpp"
@@ -209,7 +210,8 @@ int dial_tls(const std::string& host, int port, int timeout_ms,
 
     init_once();
 
-    const bool want_verify = !obn::lan_tls::skip_verify_from_env();
+    const bool want_verify = !obn::lan_tls::skip_verify_from_env()
+                           && !obn::config::current().lan_tls_skip_verify;
     std::string ca_path;
     std::string serial_str;
     if (want_verify) {

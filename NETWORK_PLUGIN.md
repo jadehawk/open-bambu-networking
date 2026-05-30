@@ -706,7 +706,7 @@ Studio does **not** pass these booleans into `PrintParams`. They live on `Machin
 |---|---|---|---|
 | **`is_support_brtc`** | `print.fun` **bit 31** | Firmware supports the **`:6000` binary file-transfer tunnel** (`ft_*` ABI) and related **`brtc://`** print-start URLs. Comment in `DeviceManager.hpp:540`: *“support tcp and upload protocol”*. | **Send to Printer only** — chooses `ft_*` upload vs legacy FTPS `SendJob`. **Not** read in `PrintJob::process()`. |
 | **`is_support_print_with_emmc`** | `print.fun2` **bit 0** | Printer can print from **internal model cache** without a removable SD card. | **`PrintJob` / Select Machine** — copied to `PrintJob::could_emmc_print` (`SelectMachine.cpp:3114`); enables `:6000` connect probe in LAN preflight and allows `start_local_print` when `!has_sdcard`. |
-| **`is_support_model_internal_storage`** | `print.fun2` **bit 17** | Internal **model cache** tab in Device → Storage → Model (`storage=internal` on `LIST_INFO`). | **`MediaFilePanel`** — `updateStorageTabVisibility()` when `F_MODEL` is selected. P2S firmware often omits bit 17 on unbound LAN; stock hides the tab. |
+| **`is_support_model_internal_storage`** | `print.fun2` **bit 17** | Internal **model cache** tab in Device → Storage → Model (`storage=internal` on `LIST_INFO`). | **`MediaFilePanel`** — `updateStorageTabVisibility()` when `F_MODEL` is selected. Whether the tab appears depends on the printer's own `fun2` report. |
 | **`is_support_send_to_sdcard`** | (separate flag) | “Send to Printer” feature enabled for this model. | `SendToPrinterDialog` entry guard (`SendToPrinter.cpp:1297`). |
 
 **What “brtc” means here.** In Studio sources the name covers two layers that appeared together (~2025-10, commits `76e45bde2` / `662b7fdac`, §6.14.3):

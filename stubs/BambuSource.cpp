@@ -884,7 +884,7 @@ OBN_EXPORT int Bambu_Open(Bambu_Tunnel tunnel)
     // (passthrough worker + RTSP handshake); MJPG stays as manual
     // TLS + auth packet below. Both the stock plugin and our passthrough
     // hand raw H.264 byte-stream back to gstbambusrc, so this path is
-    // gated only on the URL scheme - not on OBN_ENABLE_WORKAROUNDS.
+    // gated only on the URL scheme.
     if (t->url.scheme == Scheme::Rtsps || t->url.scheme == Scheme::Rtsp) {
         return open_rtsp(t);
     }

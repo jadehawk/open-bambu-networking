@@ -1,6 +1,8 @@
 #include "obn/config.hpp"
 
+#include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -21,6 +23,14 @@ std::string trim(const std::string& s)
     return s.substr(b, e - b);
 }
 
+std::string to_lower(const std::string& s)
+{
+    std::string r = s;
+    std::transform(r.begin(), r.end(), r.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return r;
+}
+
 bool parse_line(const std::string& line, std::string& key, std::string& val)
 {
     key.clear();
@@ -35,13 +45,22 @@ bool parse_line(const std::string& line, std::string& key, std::string& val)
 
 void apply_key(Settings& out, const std::string& key, const std::string& val)
 {
-    if (key == "log_level") out.log_level = val;
-    else if (key == "log_stderr") out.log_stderr = val;
-    else if (key == "log_to_file") out.log_to_file = val;
-    else if (key == "log_file") out.log_file = val;
+    if      (key == "log_level")      out.log_level = val;
+    else if (key == "log_stderr")     out.log_stderr = val;
+    else if (key == "log_to_file")    out.log_to_file = val;
+    else if (key == "log_file")       out.log_file = val;
     else if (key == "cloud_api_host") out.cloud_api_host = val;
     else if (key == "cloud_web_host") out.cloud_web_host = val;
     else if (key == "cloud_mqtt_host") out.cloud_mqtt_host = val;
+    else if (key == "lan_tls_skip_verify")      out.lan_tls_skip_verify = truthy(val);
+    else if (key == "cloud_mqtt_port") {
+        int p = std::atoi(val.c_str());
+        if (p > 0 && p <= 65535) out.cloud_mqtt_port = p;
+    }
+    else if (key == "block_cloud")              out.block_cloud = truthy(val);
+    else if (key == "force_timelapse_external")  out.force_timelapse_external = truthy(val);
+    else if (key == "bambusource_log_level")     out.bambusource_log_level = val;
+    else if (key == "bambusource_log_file")      out.bambusource_log_file = val;
 }
 
 Settings parse_file(const std::filesystem::path& path)
@@ -67,22 +86,47 @@ bool write_default_template(const std::filesystem::path& path)
     std::ofstream f(tmp, std::ios::binary);
     if (!f) return false;
 
-    f << "# Open Bamboo Networking user settings\n"
+    f << "# Open Bambu Networking user settings\n"
       << "# Environment variables (OBN_LOG_*) override these values.\n"
       << "\n"
-      << "# Logging\n"
+      << "# --- Logging ---\n"
       << "log_level = info\n"
       << "log_stderr = 1\n"
       << "log_to_file = 0\n"
       << "# log_file = /absolute/path/to/obn.log\n"
       << "\n"
-      << "# Cloud endpoints (leave empty for production US/CN by country_code)\n"
+      << "# --- Cloud endpoints ---\n"
+      << "# Leave empty for production US/CN by country_code.\n"
       << "# Production global: https://api.bambulab.com / https://bambulab.com / us.mqtt.bambulab.com\n"
       << "# Production CN:      https://api.bambulab.cn / https://bambulab.cn / cn.mqtt.bambulab.com\n"
       << "# Dev/QA (Studio):    https://api-dev.bambulab.net / https://api-qa.bambulab.net / ...\n"
       << "# cloud_api_host = https://api.bambulab.com\n"
       << "# cloud_web_host = https://bambulab.com\n"
-      << "# cloud_mqtt_host = us.mqtt.bambulab.com\n";
+      << "# cloud_mqtt_host = us.mqtt.bambulab.com\n"
+      << "\n"
+      << "# Cloud MQTT port (default 8883).\n"
+      << "# cloud_mqtt_port = 8883\n"
+      << "\n"
+      << "# --- Cloud access ---\n"
+      << "# Block background cloud MQTT/REST connections. Auth, preset sync,\n"
+      << "# and bind/unbind are still allowed.\n"
+      << "# block_cloud = 1\n"
+      << "\n"
+      << "# --- LAN TLS ---\n"
+      << "# Skip TLS certificate verification for LAN MQTT/FTPS connections.\n"
+      << "# lan_tls_skip_verify = 0\n"
+      << "\n"
+      << "# --- Print behavior ---\n"
+      << "# Always save timelapse to external storage (USB/SD), ignoring the\n"
+      << "# Internal/External choice in the print dialog. Useful on P2S where\n"
+      << "# eMMC is small and you always want timelapse on the USB stick.\n"
+      << "# force_timelapse_external = 0\n"
+      << "\n"
+      << "# --- BambuSource logging ---\n"
+      << "# Separate log level/file for the BambuSource (video/CTRL) library.\n"
+      << "# Only read if BambuSource is loaded; file is never created by it.\n"
+      << "# bambusource_log_level = info\n"
+      << "# bambusource_log_file = /absolute/path/to/bambusource.log\n";
 
     if (!f) {
         f.close();
@@ -113,6 +157,14 @@ std::filesystem::path config_path(const std::string& config_dir)
 
 } // namespace
 
+bool truthy(const std::string& val, bool fallback)
+{
+    const std::string lc = to_lower(val);
+    if (lc == "1" || lc == "true" || lc == "yes") return true;
+    if (lc == "0" || lc == "false" || lc == "no") return false;
+    return fallback;
+}
+
 Settings load_or_create(const std::string& config_dir)
 {
     std::lock_guard<std::mutex> lk(g_mu);
@@ -127,6 +179,16 @@ Settings load_or_create(const std::string& config_dir)
 
     g_current = parse_file(path);
     return g_current;
+}
+
+Settings load_if_exists(const std::string& config_dir)
+{
+    if (config_dir.empty()) return {};
+    const auto path = config_path(config_dir);
+    if (path.empty()) return {};
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) return {};
+    return parse_file(path);
 }
 
 const Settings& current()

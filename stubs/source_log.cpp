@@ -1,5 +1,6 @@
 #include "source_log.hpp"
 
+#include "obn/config.hpp"
 #include "obn/os_compat.hpp"
 
 #include <cctype>
@@ -98,11 +99,13 @@ thread_local std::string g_last_error;
 
 LogLevel current_log_level()
 {
-    static const LogLevel lvl = []() {
-        return parse_log_level(std::getenv("OBN_BAMBUSOURCE_LOG_LEVEL"),
-                               LL_INFO);
-    }();
-    return lvl;
+    // Env var takes priority; fall back to obn.conf bambusource_log_level
+    // (available once the main plugin has called load_or_create).
+    if (const char* env = std::getenv("OBN_BAMBUSOURCE_LOG_LEVEL"))
+        return parse_log_level(env, LL_INFO);
+    const auto& lvl = obn::config::current().bambusource_log_level;
+    if (!lvl.empty()) return parse_log_level(lvl.c_str(), LL_INFO);
+    return LL_INFO;
 }
 
 #if defined(_WIN32)
@@ -162,13 +165,17 @@ std::string this_dll_data_dir()
 FILE* mirror_log_fp()
 {
     static FILE* fp = []() -> FILE* {
-        if (const char* env = std::getenv("OBN_BAMBUSOURCE_LOG_FILE")) {
-            if (!*env || !std::strcmp(env, "off") ||
-                !std::strcmp(env, "none") || !std::strcmp(env, "0"))
+        // Env var takes priority; fall back to obn.conf bambusource_log_file.
+        const char* env = std::getenv("OBN_BAMBUSOURCE_LOG_FILE");
+        const auto& conf_file = obn::config::current().bambusource_log_file;
+        const char* explicit_path = env ? env : (!conf_file.empty() ? conf_file.c_str() : nullptr);
+        if (explicit_path) {
+            if (!*explicit_path || !std::strcmp(explicit_path, "off") ||
+                !std::strcmp(explicit_path, "none") || !std::strcmp(explicit_path, "0"))
                 return nullptr;
-            if (!std::strcmp(env, "stderr") || !std::strcmp(env, "-"))
+            if (!std::strcmp(explicit_path, "stderr") || !std::strcmp(explicit_path, "-"))
                 return stderr;
-            if (FILE* f = std::fopen(env, "a")) {
+            if (FILE* f = std::fopen(explicit_path, "a")) {
                 // _IOLBF + nullptr buffer is invalid on MSVC CRT and triggers
                 // __fastfail(FAST_FAIL_INVALID_ARG); use _IONBF (no buffering)
                 // which is allowed with a NULL buffer on every supported CRT.

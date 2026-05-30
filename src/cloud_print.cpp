@@ -38,6 +38,7 @@
 
 #include "obn/bambu_networking.hpp"
 #include "obn/cloud_auth.hpp"
+#include "obn/config.hpp"
 #include "obn/http_client.hpp"
 #include "obn/json_lite.hpp"
 #include "obn/log.hpp"
@@ -483,7 +484,9 @@ std::string build_task_body(const BBL::PrintParams& p,
 
     int cfg_bits = 0;
     #if ABI_VERSION >= 0x020503
-        if (p.task_timelapse_use_internal) cfg_bits |= 4;
+        if (p.task_timelapse_use_internal &&
+            !obn::config::current().force_timelapse_external)
+            cfg_bits |= 4;
     #endif
     os << ",\"cfg\":\"" << cfg_bits << "\"";
     os << ",\"cover\":\"\"";

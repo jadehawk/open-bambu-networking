@@ -4,6 +4,7 @@
 #include "obn/abi_export.hpp"
 #include "obn/agent.hpp"
 #include "obn/bambu_networking.hpp"
+#include "obn/config.hpp"
 #include "obn/log.hpp"
 
 using obn::as_agent;
@@ -14,6 +15,10 @@ OBN_ABI int bambu_network_connect_server(void* agent)
 {
     auto* a = as_agent(agent);
     if (!a) return BAMBU_NETWORK_ERR_INVALID_HANDLE;
+    if (obn::config::current().block_cloud) {
+        OBN_DEBUG("bambu_network_connect_server: blocked by block_cloud");
+        return BAMBU_NETWORK_SUCCESS;
+    }
     int rc = a->connect_cloud();
     OBN_INFO("bambu_network_connect_server -> %d", rc);
     return rc;
@@ -30,9 +35,7 @@ OBN_ABI int bambu_network_refresh_connection(void* agent)
 {
     auto* a = as_agent(agent);
     if (!a) return BAMBU_NETWORK_ERR_INVALID_HANDLE;
-    // Called on Studio's ~1Hz device refresh timer - keep it quiet in
-    // the log and let the agent decide whether a real reconnect is
-    // needed.
+    if (obn::config::current().block_cloud) return BAMBU_NETWORK_SUCCESS;
     OBN_DEBUG("bambu_network_refresh_connection");
     return a->cloud_refresh();
 }
@@ -92,8 +95,12 @@ OBN_ABI int bambu_network_send_message(void* agent,
     if (!a) return BAMBU_NETWORK_ERR_INVALID_HANDLE;
     // Try LAN first: send_message_to_printer returns INVALID_HANDLE
     // when no LAN session matches the dev_id, in which case we fall
-    // through to cloud.
+    // through to cloud (unless blocked).
     int rc = a->send_message_to_printer(dev_id, json_str, qos);
     if (rc != BAMBU_NETWORK_ERR_INVALID_HANDLE) return rc;
+    if (obn::config::current().block_cloud) {
+        OBN_DEBUG("bambu_network_send_message: cloud fallback blocked");
+        return BAMBU_NETWORK_ERR_INVALID_HANDLE;
+    }
     return a->cloud_send_message(dev_id, json_str, qos);
 }

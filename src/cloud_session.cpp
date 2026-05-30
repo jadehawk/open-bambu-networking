@@ -191,7 +191,7 @@ int CloudSession::start(ConnectedCb on_connected,
 
     mqtt::ConnectConfig cfg;
     cfg.host         = host;
-    cfg.port         = 8883;
+    cfg.port         = obn::config::current().cloud_mqtt_port;
     cfg.username     = "u_" + user_id;
     cfg.password     = token;
     cfg.use_tls      = true;

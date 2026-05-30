@@ -21,12 +21,32 @@ struct Settings {
     std::string cloud_api_host;
     std::string cloud_web_host;
     std::string cloud_mqtt_host;
+
+    // LAN / cloud networking
+    bool lan_tls_skip_verify      = false;
+    int  cloud_mqtt_port          = 8883;
+    bool block_cloud              = true;
+
+    // Print behavior overrides
+    bool force_timelapse_external = false;
+
+    // BambuSource logging (read-only via load_if_exists)
+    std::string bambusource_log_level;
+    std::string bambusource_log_file;
 };
+
+// Parse "0"/"1"/"true"/"false"/"yes"/"no" (case-insensitive) into a bool.
+// Returns `fallback` for unrecognised values.
+bool truthy(const std::string& val, bool fallback = false);
 
 // Load from <config_dir>/obn.conf; create a commented template if missing.
 // Thread-safe; subsequent calls return the same cached Settings until
 // load_or_create is called with a different non-empty directory.
 Settings load_or_create(const std::string& config_dir);
+
+// Parse an existing obn.conf without creating a template if absent.
+// Returns default Settings when the file does not exist.
+Settings load_if_exists(const std::string& config_dir);
 
 // Valid only after load_or_create(); otherwise returns default Settings.
 const Settings& current();

@@ -11,7 +11,6 @@ BUILD_TYPE=Release
 PREFIX=""
 OBN_VERSION=""
 CLIENT_TYPE=bambu_studio
-WORKAROUNDS=ON
 TESTS=OFF
 PATCH_CONF=ON
 EXTRA_CMAKE_ARGS=""
@@ -68,11 +67,6 @@ Build settings:
                          or pass --with-version=... by hand.
 
 Optional features:
-  --disable-workarounds      Strict drop-in replacement: every non-stock
-                             code path is compiled out. Features that
-                             depend on them (P2S Send, LAN file browser,
-                             SD-over-MQTT, MJPEG transcode) disappear
-                             cleanly. Re-enable with --enable-workarounds.
   --enable-tests             Build probe_plugin / *_live_test smoke tests
                              (disabled by default). Disable again with
                              --disable-tests.
@@ -89,7 +83,7 @@ Other:
 Examples:
   ./configure
   ./configure --prefix=/opt/my-bambu --build-type=Debug
-  ./configure --disable-workarounds --no-conf-patch
+  ./configure --no-conf-patch
   ./configure --client-type=orca_slicer
 EOF
 }
@@ -101,8 +95,6 @@ for arg in "$@"; do
         --build-type=*)            BUILD_TYPE="${arg#*=}" ;;
         --with-version=*)          OBN_VERSION="${arg#*=}" ;;
         --client-type=*)           CLIENT_TYPE="${arg#*=}" ;;
-        --disable-workarounds)     WORKAROUNDS=OFF ;;
-        --enable-workarounds)      WORKAROUNDS=ON ;;
         --disable-tests)           TESTS=OFF ;;
         --enable-tests)            TESTS=ON ;;
         --no-conf-patch)           PATCH_CONF=OFF ;;
@@ -318,7 +310,6 @@ set -- -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
 [ -n "$OBN_VERSION" ] && set -- "$@" -DOBN_VERSION="$OBN_VERSION"
 set -- "$@" \
     -DOBN_CLIENT_TYPE="$CLIENT_TYPE" \
-    -DOBN_ENABLE_WORKAROUNDS="$WORKAROUNDS" \
     -DOBN_BUILD_TESTS="$TESTS" \
     -DOBN_PATCH_CLIENT_CONF="$PATCH_CONF"
 # shellcheck disable=SC2086

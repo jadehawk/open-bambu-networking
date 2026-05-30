@@ -98,8 +98,12 @@ OBN_ABI int bambu_network_start(void* agent)
     // here ourselves - start() is the very last call in the plugin
     // handshake, so all callbacks are already registered.
     if (auto* a = as_agent(agent); a && a->user_logged_in()) {
-        OBN_INFO("start: user already logged in, auto-connecting cloud");
-        a->connect_cloud();
+        if (obn::config::current().block_cloud) {
+            OBN_INFO("start: user logged in but block_cloud=1, skipping auto-connect");
+        } else {
+            OBN_INFO("start: user already logged in, auto-connecting cloud");
+            a->connect_cloud();
+        }
     }
     return BAMBU_NETWORK_SUCCESS;
 }

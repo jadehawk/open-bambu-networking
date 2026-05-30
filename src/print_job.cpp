@@ -20,6 +20,7 @@
 #include "obn/print_job.hpp"
 
 #include "obn/bambu_networking.hpp"
+#include "obn/config.hpp"
 #include "obn/ftps.hpp"
 #include "obn/log.hpp"
 #include "obn/print_params_ftp_prefs.hpp"
@@ -382,7 +383,9 @@ std::string build_project_file_json(const BBL::PrintParams& p,
     // bound that introduced `task_timelapse_use_internal`.
     int cfg_bits = 0;
 #if ABI_VERSION >= 0x020503
-    if (p.task_timelapse_use_internal) cfg_bits |= 4;
+    if (p.task_timelapse_use_internal &&
+        !obn::config::current().force_timelapse_external)
+        cfg_bits |= 4;
 #endif
     os << ",\"cfg\":\"" << cfg_bits << "\"";
 
@@ -541,17 +544,6 @@ int Agent::run_sdcard_print_job(const BBL::PrintParams& params,
                                 BBL::OnUpdateStatusFn   update_fn,
                                 BBL::WasCancelledFn     cancel_fn)
 {
-#if !OBN_ENABLE_WORKAROUNDS
-    // Stock plugin routes "Print from Device" through the cloud
-    // `start_sdcard_print` REST call, which we can't sign. Without
-    // the workaround we surface the same error Studio would have seen
-    // from the stub.
-    (void)params; (void)cancel_fn;
-    if (update_fn) update_fn(BBL::PrintingStageERROR,
-                             BAMBU_NETWORK_ERR_CONNECTION_TO_PRINTER_FAILED,
-                             "obn: start_sdcard_print disabled (OBN_ENABLE_WORKAROUNDS=OFF)");
-    return BAMBU_NETWORK_ERR_CONNECTION_TO_PRINTER_FAILED;
-#else
     // The file is already on the printer (we listed it via the
     // PrinterFileSystem CTRL channel); all we do is tell the printer
     // to start a print from that path. Studio routes this through
@@ -615,7 +607,6 @@ int Agent::run_sdcard_print_job(const BBL::PrintParams& params,
     OBN_INFO("sdcard_print dev=%s: queued for printing (file=%s, plate=%d)",
              params.dev_id.c_str(), remote_path.c_str(), params.plate_index);
     return 0;
-#endif // OBN_ENABLE_WORKAROUNDS
 }
 
 int Agent::run_send_gcode_to_sdcard(const BBL::PrintParams& params,
