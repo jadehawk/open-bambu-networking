@@ -1,4 +1,4 @@
-# Open Bambu Networking — interactive installer for Windows.
+# Open Bamboo Networking — interactive installer for Windows.
 # Ships inside the distribution archive next to lib\vXX.XX.XX\ directories.
 # Detects the slicer, matches the ABI version, copies binaries, patches
 # the slicer conf, and registers the DirectShow filter.
@@ -25,7 +25,7 @@ function Wait-And-Exit {
 # ── Client selection ─────────────────────────────────────────────────────
 
 Write-Host ""
-Write-Host "Open Bambu Networking - Installer" -ForegroundColor White
+Write-Host "Open Bamboo Networking - Installer" -ForegroundColor White
 $VersionFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "VERSION"
 if (Test-Path $VersionFile) {
     $VersionContent = (Get-Content -Path $VersionFile -Raw).Trim()
@@ -378,10 +378,10 @@ Write-Host "  Config:     $ObnConf"
 Write-Host "  Slicer:     $ClientLabel ($Prefix)"
 Write-Host ""
 Write-Host "Next steps:"
-Write-Host "  1. Launch $ClientLabel - it should load the open-bambu-networking plugin"
+Write-Host "  1. Launch $ClientLabel - it should load the open-bamboo-networking plugin"
 Write-Host "  2. Edit $ObnConf to customize plugin behavior (created on first launch)"
 Write-Host ""
-Write-Host "GitHub: https://github.com/ClusterM/open-bambu-networking" -ForegroundColor Cyan
+Write-Host "GitHub: https://github.com/ClusterM/open-bamboo-networking" -ForegroundColor Cyan
 Write-Host ""
 
 Wait-And-Exit -code 0

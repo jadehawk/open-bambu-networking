@@ -48,7 +48,7 @@ fi
 
 PLUGIN="$HOME/.config/BambuStudio/plugins/libbambu_networking.so"
 if [[ ! -f "$PLUGIN" ]]; then
-  echo "missing $PLUGIN — build and install open-bambu-networking first" >&2
+  echo "missing $PLUGIN — build and install open-bamboo-networking first" >&2
   exit 1
 fi
 

@@ -233,7 +233,7 @@ Source: [src/abi_print.cpp](src/abi_print.cpp). **Studio-side orchestration** (w
 
 Source: [src/abi_print.cpp](src/abi_print.cpp), [src/print_job.cpp](src/print_job.cpp), [src/cloud_print.cpp](src/cloud_print.cpp), [src/tunnel_upload.cpp](src/tunnel_upload.cpp).
 
-The five ABI symbols above are thin wrappers around **`obn::Agent`** methods. These names and the file split are **open-bambu-networking only** — the stock `libbambu_networking.so` internal structure is unknown.
+The five ABI symbols above are thin wrappers around **`obn::Agent`** methods. These names and the file split are **open-bamboo-networking only** — the stock `libbambu_networking.so` internal structure is unknown.
 
 | ABI entry point | `Agent::` handler | Source | Current transport |
 | --- | --- | --- | --- |

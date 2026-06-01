@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Open Bambu Networking — Downloads</title>
+<title>Open Bamboo Networking — Downloads</title>
 <style>
   :root {
     --bg: #0d1117;
@@ -110,7 +110,7 @@
 <body>
 <div class="container">
 
-<h1>Open Bambu Networking</h1>
+<h1>Open Bamboo Networking</h1>
 <p class="subtitle">
   Pre-built <strong>interim</strong> plugin distributions for Bambu Studio and Orca Slicer.
   These builds contain the latest features but may be unstable.
@@ -153,7 +153,7 @@
 </div>
 
 <footer>
-  <a href="https://github.com/@REPO@">Open Bambu Networking</a> &mdash;
+  <a href="https://github.com/@REPO@">Open Bamboo Networking</a> &mdash;
   open-source replacement for Bambu Lab's proprietary network plugin
 </footer>
 

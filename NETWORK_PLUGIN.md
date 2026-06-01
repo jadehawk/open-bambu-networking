@@ -10,7 +10,7 @@ The reference is derived from three independent sources, none of them involving 
 
 Where a claim originates from MITM or matrix runs rather than Studio source it is marked accordingly (see "Evidence" tags in §6.10.2 and the per-field tables in §6.8.2). Behaviour that has not been confirmed against either source is flagged as such.
 
-**Source path convention:** every `src/slic3r/…` path below is relative to the upstream [bambulab/BambuStudio](https://github.com/bambulab/BambuStudio) tree. These files are **not** vendored in open-bambu-networking (`3rd_party/` is gitignored local tooling). [SoftFever/OrcaSlicer](https://github.com/SoftFever/OrcaSlicer) shares almost all of the same paths; camera-widget and Windows back-end divergences are called out inline (§7.4).
+**Source path convention:** every `src/slic3r/…` path below is relative to the upstream [bambulab/BambuStudio](https://github.com/bambulab/BambuStudio) tree. These files are **not** vendored in open-bamboo-networking (`3rd_party/` is gitignored local tooling). [SoftFever/OrcaSlicer](https://github.com/SoftFever/OrcaSlicer) shares almost all of the same paths; camera-widget and Windows back-end divergences are called out inline (§7.4).
 
 ---
 

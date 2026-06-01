@@ -1,5 +1,5 @@
 #!/bin/sh
-# Open Bambu Networking — interactive installer for Linux and macOS.
+# Open Bamboo Networking — interactive installer for Linux and macOS.
 # Ships inside the distribution archive next to lib/vXX.XX.XX/ directories.
 # Detects the slicer, matches the ABI version, copies binaries, and patches
 # the slicer conf.
@@ -38,7 +38,7 @@ esac
 
 # ── Client selection ─────────────────────────────────────────────────────
 
-printf "\n${BOLD}Open Bambu Networking — Installer${RESET}\n"
+printf "\n${BOLD}Open Bamboo Networking — Installer${RESET}\n"
 if [ -f "$SCRIPT_DIR/VERSION" ]; then
     VERSION_CONTENT=$(cat "$SCRIPT_DIR/VERSION")
     printf "  Build: %s\n" "$VERSION_CONTENT"
@@ -401,7 +401,7 @@ printf "  Config:     %s\n" "$OBN_CONF"
 printf "  Slicer:     %s (%s)\n" "$CLIENT_LABEL" "$PREFIX"
 echo ""
 printf "Next steps:\n"
-printf "  1. Launch %s — it should load the open-bambu-networking plugin\n" "$CLIENT_LABEL"
+printf "  1. Launch %s — it should load the open-bamboo-networking plugin\n" "$CLIENT_LABEL"
 printf "  2. Edit %s to customize plugin behavior (created on first launch)\n" "$OBN_CONF"
 echo ""
-printf "GitHub: ${BOLD}https://github.com/ClusterM/open-bambu-networking${RESET}\n\n"
+printf "GitHub: ${BOLD}https://github.com/ClusterM/open-bamboo-networking${RESET}\n\n"

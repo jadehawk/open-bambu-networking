@@ -1,4 +1,4 @@
-# Open Bambu Networking -- user settings
+# Open Bamboo Networking -- user settings
 #
 # Log settings can also be set via OBN_LOG_* environment variables;
 # when set, they take priority over this file.
